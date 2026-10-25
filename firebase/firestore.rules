@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud_firestore {
+  match /databases/{database}/documents {
+    // leaderboards/{mode}/scores/{id}: anyone can read, anyone can add a well-formed score,
+    // nobody can edit or delete from the app.
+    match /leaderboards/{mode}/scores/{id} {
+      allow read: if mode in ['endless', 'casablanca', 'marrakech', 'fes', 'tangier'];
+      allow create: if mode in ['endless', 'casablanca', 'marrakech', 'fes', 'tangier']
+        && request.resource.data.keys().hasOnly(['name', 'score', 'cans', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 16
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score < 1000000
+        && request.resource.data.cans is int
+        && request.resource.data.cans >= 0
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}
