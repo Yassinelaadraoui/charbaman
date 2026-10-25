@@ -34,11 +34,29 @@ On web: arrow keys / WASD, space to jump, P to pause.
 Scores live at `leaderboards/{endless|casablanca|marrakech|fes|tangier}/scores`. Without a `.env`, the game
 keeps working and the leaderboard shows scores saved on the phone.
 
+## 3D hero model
+
+The game renders in real 3D with three.js on `expo-gl` (works in Expo Go). The hero comes from
+`assets/models/hero.obj`, a low-poly model split into 16 body parts (head, neck, torso, pelvis, upper arms,
+forearms, hands, thighs, shins, feet) in a T-pose. Because every part is its own mesh, the run, jump and slide
+animations are done by rotating joints in code, PS1 style, with no rigging needed.
+
+To swap in another model split the same way:
+
+```bash
+python3 scripts/convert-hero.py path/to/model.obj src/game/three/heroMesh.ts
+```
+
+Current placeholder model: "3D Pepsiman" by ChristianDPS on Sketchfab, recoloured. It is a fan model of a
+PepsiCo character, so replace it with an original Charbaman model before publishing to the stores.
+
 ## Code map
 
 - `src/game/engine.ts` game rules: physics, collisions, track generation, chase
-- `src/game/World.tsx` pseudo-3D renderer (road, curves, skyline, sprites)
-- `src/game/Hero.tsx`, `src/game/sprites.tsx` the hero, obstacles and scenery, drawn with plain views
+- `src/game/three/scene.ts` 3D renderer: camera, curved street, skyline, pooled props, giant bottle
+- `src/game/three/hero.ts` hero rig built from the model parts, plus procedural animation
+- `src/game/three/props.ts` low-poly obstacles, bottles, houses, palms and landmarks
+- `src/game/sprites.tsx` 2D bottle icon used in menus and the HUD
 - `src/game/cities.ts` stage definitions
 - `src/screens/*` title, city select, game, results, leaderboard, how to play
 - `src/services/firebase.ts`, `src/services/storage.ts` online and local scores

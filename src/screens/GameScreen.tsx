@@ -3,7 +3,8 @@ import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View, us
 import * as Haptics from 'expo-haptics';
 import { CITIES } from '../game/cities';
 import { GameEvent, GameMode, GameState, Input, ROAD_HALF, city, createGame, progress, start, step } from '../game/engine';
-import { World, makeView } from '../game/World';
+import { GLView } from 'expo-gl';
+import { GameRenderer } from '../game/three/scene';
 import { Bottle } from '../game/sprites';
 import { colors } from '../theme';
 
@@ -23,7 +24,7 @@ const buzz = (kind: 'light' | 'heavy' | 'success') => {
 
 export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
   const { width: W, height: H } = useWindowDimensions();
-  const view = useMemo(() => makeView(W, H), [W, H]);
+  const gfx = useRef<GameRenderer | null>(null);
   const game = useRef<GameState>(createGame(mode, cityIndex));
   const input = useRef<Input>({ steer: 0, jump: false, slide: false });
   const keys = useRef({ left: false, right: false });
@@ -124,6 +125,7 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
           );
         }
       }
+      gfx.current?.render(s);
       render();
       raf = requestAnimationFrame(loop);
     };
@@ -200,7 +202,13 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
 
   return (
     <View style={styles.root} {...pan.panHandlers}>
-      <World s={s} v={view} />
+      <GLView
+        style={styles.gl}
+        onContextCreate={(gl) => {
+          gfx.current = new GameRenderer(gl as unknown as WebGLRenderingContext, W, H, () => gl.endFrameEXP());
+          if (Platform.OS === 'web') (globalThis as { __charbaGfx?: GameRenderer }).__charbaGfx = gfx.current;
+        }}
+      />
 
       {/* HUD */}
       <View style={styles.hud} pointerEvents="box-none">
@@ -281,6 +289,7 @@ const shadow = { textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width:
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ink, overflow: 'hidden' },
+  gl: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   hud: { position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 50, paddingHorizontal: 16 },
   hudRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   pill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(43,19,0,0.55)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, gap: 8 },

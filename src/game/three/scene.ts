@@ -1,0 +1,329 @@
+import * as THREE from 'three';
+import type { City } from '../cities';
+import { GameState, ROAD_HALF, city as cityOf } from '../engine';
+import { buildHero, HeroRig, poseHero } from './hero';
+import { entityObject, flag, giantBottle, house, lamp, landmark, palm, shadeHex, mat } from './props';
+
+// Engine space: x lateral, z forward along the street, y up.
+// Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
+
+const MAX_D = 110;
+const DECOR_D = 80;
+const SEG = 3;
+const DECOR_STEP = 7;
+const STRIPS = 6; // ground L/R, curb L/R, road, centre dash
+
+const curvature = (z: number) => 0.0028 * Math.sin(z / 150 + 1.3) + 0.0013 * Math.sin(z / 61);
+const curveIntegral = (z: number) => -0.0028 * 150 * Math.cos(z / 150 + 1.3) - 0.0013 * 61 * Math.cos(z / 61);
+
+const hash = (i: number) => {
+  let x = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b);
+  x ^= x >>> 13;
+  x = Math.imul(x, 0xc2b2ae35);
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+};
+
+const color = (hex: string) => new THREE.Color(hex);
+
+type Pooled = { obj: THREE.Object3D; seen: number };
+
+export class GameRenderer {
+  renderer: THREE.WebGLRenderer;
+  scene = new THREE.Scene();
+  camera: THREE.PerspectiveCamera;
+  hero: HeroRig;
+  shadow: THREE.Mesh;
+  road: THREE.Mesh;
+  roadPos: Float32Array;
+  roadCol: Float32Array;
+  sky: THREE.Mesh;
+  skyline = new THREE.Group();
+  sea: THREE.Mesh;
+  hemi: THREE.HemisphereLight;
+  sun: THREE.DirectionalLight;
+  giant: THREE.Group;
+  pool = new Map<string, Pooled>();
+  frame = 0;
+  cityId = '';
+  camDist = 6.2;
+  camHeight = 3.2;
+  onFrameEnd?: () => void;
+  debugCamera?: { pos: [number, number, number]; look: [number, number, number] }; // for automated playtests
+
+  constructor(gl: WebGLRenderingContext, width: number, height: number, onFrameEnd?: () => void) {
+    this.onFrameEnd = onFrameEnd;
+    // expo-gl gives a bare GL context; three only needs a canvas-shaped object around it.
+    const canvas = {
+      width: gl.drawingBufferWidth,
+      height: gl.drawingBufferHeight,
+      style: {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      clientHeight: height,
+      getContext: () => gl,
+    } as unknown as HTMLCanvasElement;
+    this.renderer = new THREE.WebGLRenderer({ canvas, context: gl as WebGL2RenderingContext, antialias: false });
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
+
+    this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 600);
+    this.fitCamera(width / height);
+
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x8a6a50, 1.6);
+    this.sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    this.sun.position.set(-4, 10, 6);
+    this.scene.add(this.hemi, this.sun);
+
+    // Gradient sky dome.
+    const skyGeo = new THREE.SphereGeometry(400, 16, 12);
+    skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(skyGeo.attributes.position.count * 3), 3));
+    this.sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false }));
+    this.scene.add(this.sky);
+
+    this.sea = new THREE.Mesh(new THREE.PlaneGeometry(1200, 260), new THREE.MeshBasicMaterial({ color: 0x2e86c1 }));
+    this.sea.rotation.x = -Math.PI / 2;
+    this.sea.position.set(0, -0.05, -300);
+    this.scene.add(this.sea, this.skyline);
+
+    // Road + ground ribbon, rebuilt every frame (STRIPS quads per segment, 6 verts per quad).
+    const segs = Math.ceil(MAX_D / SEG) + 2;
+    this.roadPos = new Float32Array(segs * STRIPS * 6 * 3);
+    this.roadCol = new Float32Array(segs * STRIPS * 6 * 3);
+    const roadGeo = new THREE.BufferGeometry();
+    roadGeo.setAttribute('position', new THREE.BufferAttribute(this.roadPos, 3));
+    roadGeo.setAttribute('color', new THREE.BufferAttribute(this.roadCol, 3));
+    this.road = new THREE.Mesh(roadGeo, new THREE.MeshBasicMaterial({ vertexColors: true }));
+    this.road.frustumCulled = false;
+    this.scene.add(this.road);
+
+    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }));
+    this.shadow.rotation.x = -Math.PI / 2;
+    this.shadow.position.y = 0.02;
+    this.scene.add(this.shadow);
+
+    this.hero = buildHero();
+    this.scene.add(this.hero.root);
+
+    this.giant = giantBottle();
+    this.giant.visible = false;
+    this.scene.add(this.giant);
+  }
+
+  fitCamera(aspect: number) {
+    // Keep about 5.6 m of street visible across at the hero, whatever the phone shape.
+    const halfWidth = 2.9;
+    const hfov = 2 * Math.atan(halfWidth / this.camDist);
+    const vfov = 2 * Math.atan(Math.tan(hfov / 2) / aspect);
+    this.camera.fov = Math.min(95, Math.max(50, THREE.MathUtils.radToDeg(vfov)));
+    this.camera.aspect = aspect;
+    this.camera.updateProjectionMatrix();
+  }
+
+  setCity(c: City) {
+    if (c.id === this.cityId) return;
+    this.cityId = c.id;
+    const top = color(c.skyTop);
+    const bottom = color(c.skyBottom);
+    const pos = this.sky.geometry.attributes.position;
+    const col = this.sky.geometry.attributes.color as THREE.BufferAttribute;
+    const tmp = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.max(0, Math.min(1, pos.getY(i) / 160));
+      tmp.copy(bottom).lerp(top, Math.sqrt(t));
+      col.setXYZ(i, tmp.r, tmp.g, tmp.b);
+    }
+    col.needsUpdate = true;
+    this.scene.fog = new THREE.Fog(bottom.getHex(), 45, MAX_D + 10);
+    this.hemi.color = color(c.skyBottom).lerp(new THREE.Color(0xffffff), 0.5);
+    this.hemi.groundColor = color(c.ground[1]);
+    this.sun.color = color(c.sun);
+    this.sea.visible = !!c.sea;
+    if (c.sea) (this.sea.material as THREE.MeshBasicMaterial).color = color(c.sea);
+
+    // Rebuild the skyline for this city: a ring of far blocks plus landmarks.
+    this.skyline.clear();
+    for (let i = 0; i < 40; i++) {
+      const r = hash(c.seed * 100 + i);
+      const w = 10 + r * 16;
+      const h = 8 + hash(c.seed * 200 + i) * 22;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 10), mat(i % 2 ? c.far : '#' + shadeHex(c.far, -8).toString(16).padStart(6, '0')));
+      b.position.set(-300 + i * 15 + r * 6, h / 2, -150 - hash(i + 7) * 30);
+      this.skyline.add(b);
+    }
+    c.landmarks.forEach((lm, j) => {
+      const l = landmark(lm, c);
+      l.position.set(-120 + j * 80 + hash(c.seed + j) * 20, 0, -135 - (j % 2) * 15);
+      this.skyline.add(l);
+    });
+    // City change: drop pooled props so they are rebuilt in the new colours.
+    for (const [, p] of this.pool) this.scene.remove(p.obj);
+    this.pool.clear();
+  }
+
+  private use(key: string, make: () => THREE.Object3D) {
+    let p = this.pool.get(key);
+    if (!p) {
+      p = { obj: make(), seen: 0 };
+      this.pool.set(key, p);
+      this.scene.add(p.obj);
+    }
+    p.seen = this.frame;
+    p.obj.visible = true;
+    return p.obj;
+  }
+
+  render(s: GameState) {
+    this.frame++;
+    const c = cityOf(s);
+    this.setCity(c);
+    const k = curvature(s.z);
+    const camBack = this.camDist;
+    // Bend the street: things further ahead slide sideways (OutRun-style curves).
+    const bend = (d: number) => {
+      const dd = d + camBack;
+      return 0.5 * k * dd * dd;
+    };
+    const t = s.time;
+
+    // Camera: behind and above, following the hero sideways a little. Pulls back in the chase.
+    const chase = s.phase === 'chase';
+    const targetDist = chase ? 9 : 6.2;
+    // As the giant bottle closes in, lift the camera so you can still see over it.
+    const targetHeight = chase ? 4.8 + (1 - s.chaseGap / 12) * 2.4 : 3.2;
+    this.camDist += (targetDist - this.camDist) * 0.05;
+    this.camHeight += (targetHeight - this.camHeight) * 0.05;
+    const camX = s.x * 0.55;
+    const shakeX = s.shake > 0 ? Math.sin(t * 90) * s.shake * 0.25 : 0;
+    const shakeY = s.shake > 0 ? Math.cos(t * 70) * s.shake * 0.15 : 0;
+    this.camera.position.set(camX + shakeX, this.camHeight + shakeY, this.camDist);
+    this.camera.lookAt(camX * 0.6 + bend(14) * 0.5, 0.9, -14);
+    this.fitCamera(this.camera.aspect);
+    if (this.debugCamera) {
+      this.camera.position.set(...this.debugCamera.pos);
+      this.camera.lookAt(...this.debugCamera.look);
+    }
+
+    // Sky and skyline turn with the street.
+    this.sky.position.set(this.camera.position.x, 0, this.camera.position.z);
+    this.skyline.position.x = -curveIntegral(s.z) * 120 - camX * 0.3;
+    this.skyline.position.z = this.camera.position.z;
+
+    this.buildRoad(s, c, bend);
+
+    // Hero.
+    this.hero.root.position.set(s.x, s.y, 0);
+    poseHero(this.hero, {
+      runPhase: s.runPhase,
+      airborne: s.y > 0.05,
+      vy: s.vy,
+      sliding: s.slide > 0,
+      skating: s.skate > 0,
+      tajine: s.tajine > 0,
+    });
+    this.hero.root.visible = !(s.invuln > 0 && Math.floor(s.time * 12) % 2 === 0);
+    this.shadow.position.x = s.x;
+    this.shadow.scale.setScalar(Math.max(0.4, 1 - s.y * 0.25));
+
+    // Entities.
+    for (const e of s.entities) {
+      const d = e.z - s.z;
+      if (d < -camBack || d > MAX_D) continue;
+      if (e.done && (e.kind === 'can' || e.kind === 'skate' || e.kind === 'tajine')) continue;
+      const o = this.use(`e${e.id}`, () => entityObject(e, c));
+      o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
+      if (e.kind === 'can' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
+      if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? -0.5 : 0.5;
+      if (e.kind === 'donkey') o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
+      const spin = o.getObjectByName('spin');
+      if (spin) {
+        spin.rotation.y = e.done ? 0 : t * 4;
+        spin.visible = !e.done;
+      }
+    }
+
+    // Roadside scenery.
+    for (let i = Math.floor((s.z - camBack) / DECOR_STEP); i * DECOR_STEP < s.z + DECOR_D; i++) {
+      const d = i * DECOR_STEP - s.z;
+      for (const side of [-1, 1]) {
+        const r = hash(i * 2 + (side > 0 ? 1 : 0));
+        const h = this.use(`h${i}${side}`, () => house(c, Math.floor(r * 6), side));
+        h.position.set(side * (ROAD_HALF + 5.4) + bend(d), 0, -d);
+        const kinds = c.id === 'marrakech' ? ['palm', 'palm', 'lamp', 'flag'] : ['palm', 'lamp', 'lamp', 'flag'];
+        const kind = kinds[Math.floor(r * kinds.length)];
+        const p = this.use(`d${i}${side}`, () => (kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : flag()));
+        p.position.set(side * (ROAD_HALF + 1.3) + bend(d), 0, -d);
+        if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
+      }
+    }
+
+    // The giant Charba rolling after you.
+    this.giant.visible = chase;
+    if (chase) {
+      const gap = 2.4 + s.chaseGap * 0.25;
+      this.giant.position.set(0, 1.21, gap);
+      this.giant.getObjectByName('spin')!.rotation.x = -t * 8;
+    }
+
+    // Drop pooled objects not used this frame (behind us or no longer needed).
+    for (const [key, p] of this.pool) {
+      if (p.seen !== this.frame) {
+        if (key.startsWith('e')) {
+          this.scene.remove(p.obj);
+          this.pool.delete(key);
+        } else if (p.seen < this.frame - 2) {
+          this.scene.remove(p.obj);
+          this.pool.delete(key);
+        } else {
+          p.obj.visible = false;
+        }
+      }
+    }
+
+    this.renderer.render(this.scene, this.camera);
+    this.onFrameEnd?.();
+  }
+
+  private buildRoad(s: GameState, c: City, bend: (d: number) => number) {
+    const pos = this.roadPos;
+    const col = this.roadCol;
+    let v = 0;
+    const ground = [color(c.ground[0]), color(c.ground[1])];
+    const road = [color(c.road[0]), color(c.road[1])];
+    const curb = [color(c.curb[0]), color(c.curb[1])];
+    const line = color(c.line);
+    const first = Math.floor((s.z - this.camDist - 2) / SEG);
+    const segs = this.roadPos.length / (STRIPS * 6 * 3);
+    const CURB = 0.45;
+    const GROUND = 40;
+    const quad = (x0a: number, x1a: number, za: number, x0b: number, x1b: number, zb: number, cl: THREE.Color, y = 0) => {
+      const p = [x0a, y, za, x1a, y, za, x1b, y, zb, x0a, y, za, x1b, y, zb, x0b, y, zb];
+      for (let i = 0; i < 18; i++) pos[v * 3 + i] = p[i];
+      for (let i = 0; i < 6; i++) {
+        col[(v + i) * 3] = cl.r;
+        col[(v + i) * 3 + 1] = cl.g;
+        col[(v + i) * 3 + 2] = cl.b;
+      }
+      v += 6;
+    };
+    for (let n = 0; n < segs; n++) {
+      const i = first + n;
+      const da = i * SEG - s.z;
+      const db = da + SEG;
+      const ba = bend(da);
+      const bb = bend(db);
+      const za = -da;
+      const zb = -db;
+      const alt = ((i % 2) + 2) % 2;
+      quad(-GROUND + ba, -ROAD_HALF - CURB + ba, za, -GROUND + bb, -ROAD_HALF - CURB + bb, zb, ground[alt]);
+      quad(ROAD_HALF + CURB + ba, GROUND + ba, za, ROAD_HALF + CURB + bb, GROUND + bb, zb, ground[alt]);
+      quad(-ROAD_HALF - CURB + ba, -ROAD_HALF + ba, za, -ROAD_HALF - CURB + bb, -ROAD_HALF + bb, zb, curb[alt], 0.03);
+      quad(ROAD_HALF + ba, ROAD_HALF + CURB + ba, za, ROAD_HALF + bb, ROAD_HALF + CURB + bb, zb, curb[alt], 0.03);
+      quad(-ROAD_HALF + ba, ROAD_HALF + ba, za, -ROAD_HALF + bb, ROAD_HALF + bb, zb, road[alt]);
+      // centre dash on every other segment (a zero-width quad otherwise)
+      const dw = alt ? 0.08 : 0;
+      quad(-dw + ba, dw + ba, za - 0.4, -dw + bb, dw + bb, zb + 0.4, line, 0.02);
+    }
+    this.road.geometry.attributes.position.needsUpdate = true;
+    this.road.geometry.attributes.color.needsUpdate = true;
+  }
+}
