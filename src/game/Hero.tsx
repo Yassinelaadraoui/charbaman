@@ -2,6 +2,12 @@ import React from 'react';
 import { View } from 'react-native';
 import { colors } from '../theme';
 
+// Palette taken from the Charbaman pixel-art sprite: pale silver head and right arm,
+// orange muscle suit, black outline, green necklace.
+const SILVER = '#EEE7E1';
+const INK = '#120A04';
+const NECKLACE = '#3F7A3A';
+
 type Props = {
   scale: number; // pixels per metre
   runPhase: number;
@@ -19,12 +25,15 @@ export function Hero({ scale: m, runPhase, airborne, sliding, skating, tajine, b
   const tuck = airborne ? 50 : 0;
   const lean = sliding ? -72 : skating ? 0 : 6;
 
+  const line = Math.max(1.5, 0.035 * m);
   const limb = (w: number, h: number, extra: object) => ({
     position: 'absolute' as const,
     width: w * m,
     height: h * m,
     borderRadius: (w * m) / 2,
     backgroundColor: colors.orangeDeep,
+    borderWidth: line,
+    borderColor: INK,
     ...extra,
   });
 
@@ -99,6 +108,7 @@ export function Hero({ scale: m, runPhase, airborne, sliding, skating, tajine, b
             top: 0.42 * m,
             transformOrigin: 'top',
             transform: [{ rotate: `${airborne ? -150 : skating ? -40 : -12 + swing * 0.5}deg` }],
+            backgroundColor: SILVER,
           })}
         />
         {/* torso */}
@@ -114,8 +124,9 @@ export function Hero({ scale: m, runPhase, airborne, sliding, skating, tajine, b
             borderBottomRightRadius: 0.12 * m,
             backgroundColor: colors.orange,
             alignItems: 'center',
-            justifyContent: 'center',
             overflow: 'hidden',
+            borderWidth: line,
+            borderColor: INK,
           }}
         >
           <View
@@ -129,32 +140,13 @@ export function Hero({ scale: m, runPhase, airborne, sliding, skating, tajine, b
               backgroundColor: 'rgba(255,255,255,0.35)',
             }}
           />
-          {/* Charba wave emblem */}
-          <View
-            style={{
-              width: 0.3 * m,
-              height: 0.3 * m,
-              borderRadius: 0.15 * m,
-              backgroundColor: colors.white,
-              overflow: 'hidden',
-              borderWidth: 0.025 * m,
-              borderColor: colors.cream,
-            }}
-          >
-            <View
-              style={{
-                position: 'absolute',
-                top: 0.13 * m,
-                left: -0.08 * m,
-                width: 0.46 * m,
-                height: 0.3 * m,
-                borderRadius: 0.2 * m,
-                backgroundColor: colors.orangeDeep,
-                transform: [{ rotate: '-14deg' }],
-              }}
-            />
-          </View>
+          {/* back muscles */}
+          <View style={{ position: 'absolute', top: 0.1 * m, width: Math.max(1, 0.03 * m), height: 0.5 * m, backgroundColor: colors.orangeDeep }} />
+          <View style={{ position: 'absolute', top: 0.12 * m, left: 0.1 * m, width: 0.14 * m, height: 0.2 * m, borderRadius: 0.07 * m, backgroundColor: 'rgba(160,50,0,0.35)' }} />
+          <View style={{ position: 'absolute', top: 0.12 * m, right: 0.1 * m, width: 0.14 * m, height: 0.2 * m, borderRadius: 0.07 * m, backgroundColor: 'rgba(160,50,0,0.35)' }} />
         </View>
+        {/* necklace */}
+        <View style={{ position: 'absolute', left: 0.27 * m, top: 0.33 * m, width: 0.36 * m, height: 0.12 * m, borderRadius: 0.06 * m, borderWidth: Math.max(1, 0.035 * m), borderColor: NECKLACE }} />
         {/* head */}
         <View
           style={{
@@ -164,8 +156,10 @@ export function Hero({ scale: m, runPhase, airborne, sliding, skating, tajine, b
             width: 0.42 * m,
             height: 0.44 * m,
             borderRadius: 0.22 * m,
-            backgroundColor: colors.orange,
+            backgroundColor: SILVER,
             overflow: 'hidden',
+            borderWidth: line,
+            borderColor: INK,
           }}
         >
           <View
@@ -176,7 +170,7 @@ export function Hero({ scale: m, runPhase, airborne, sliding, skating, tajine, b
               width: 0.12 * m,
               height: 0.16 * m,
               borderRadius: 0.08 * m,
-              backgroundColor: 'rgba(255,255,255,0.55)',
+              backgroundColor: 'rgba(255,255,255,0.9)',
             }}
           />
         </View>

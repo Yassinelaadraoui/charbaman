@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { CITIES } from '../game/cities';
 import type { RunResult } from './GameScreen';
 import { Button, Screen } from '../components/ui';
+import { CharbaSprite } from '../components/CharbaSprite';
 import { colors } from '../theme';
 import { firebaseEnabled, submitScore } from '../services/firebase';
 
@@ -49,6 +50,7 @@ export function ResultScreen({ result, name, isBest, onSaveName, onRetry, onNext
     <LinearGradient colors={result.cleared ? [colors.orange, colors.orangeDeep] : ['#7A2E00', colors.ink]} style={{ flex: 1 }}>
       <Screen style={styles.center}>
         <Animated.View style={{ alignItems: 'center', transform: [{ scale: pop }] }}>
+          {result.cleared && <CharbaSprite height={130} />}
           <Text style={styles.where}>{where}</Text>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.score}>{shown.toLocaleString()}</Text>

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Hero } from '../game/Hero';
+import { CharbaSprite } from '../components/CharbaSprite';
 import { Bottle } from '../game/sprites';
 import { Button } from '../components/ui';
 import { colors } from '../theme';
@@ -61,7 +61,7 @@ export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, best }
           </View>
         ))}
         <View style={styles.heroShadow} />
-        <Hero scale={110} runPhase={phase} airborne={false} sliding={false} skating={false} tajine={false} blink={false} />
+        <CharbaSprite height={250} />
       </View>
 
       <View style={styles.menu}>
@@ -85,8 +85,8 @@ const styles = StyleSheet.create({
   logo: { fontSize: 48, fontWeight: '900', color: colors.white, letterSpacing: 1, fontStyle: 'italic' },
   logoShadow: { position: 'absolute', top: 5, left: 5, fontSize: 48, fontWeight: '900', color: colors.ink, letterSpacing: 1, fontStyle: 'italic', opacity: 0.35 },
   sub: { marginTop: 6, color: colors.cream, fontWeight: '800', fontSize: 14, textAlign: 'center' },
-  heroStage: { alignItems: 'center', justifyContent: 'flex-end', height: 230, width: '100%' },
-  heroShadow: { position: 'absolute', bottom: -8, width: 110, height: 22, borderRadius: 60, backgroundColor: 'rgba(0,0,0,0.2)' },
+  heroStage: { alignItems: 'center', justifyContent: 'flex-end', height: 260, width: '100%' },
+  heroShadow: { position: 'absolute', bottom: -6, width: 150, height: 22, borderRadius: 60, backgroundColor: 'rgba(0,0,0,0.2)' },
   floatBottle: { position: 'absolute', top: 0 },
   menu: { alignItems: 'center', gap: 12, width: '100%' },
   row: { flexDirection: 'row', gap: 10 },
