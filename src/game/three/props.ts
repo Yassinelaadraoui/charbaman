@@ -61,6 +61,21 @@ export function charbaBottle(scale = 1) {
   return g;
 }
 
+// In Safi, the pottery capital, the jump obstacles are stacks of glazed pots instead of crates.
+function pots(e: Entity) {
+  const g = new THREE.Group();
+  const n = Math.max(2, Math.round(e.w * 2.5));
+  const step = (e.w * 2) / n;
+  for (let i = 0; i < n; i++) {
+    const x = -e.w + step * (i + 0.5);
+    const glaze = [0x2e7d32, 0x1565c0, 0xb5562c][i % 3];
+    g.add(cyl(step * 0.32, step * 0.42, e.h * 0.75, 10, glaze, x, e.h * 0.375));
+    g.add(cyl(step * 0.2, step * 0.3, e.h * 0.25, 10, 0xb5562c, x, e.h * 0.875));
+    g.add(cyl(step * 0.26, step * 0.26, 0.05, 10, 0xf3e9da, x, e.h * 0.55));
+  }
+  return g;
+}
+
 function crates(e: Entity) {
   const g = new THREE.Group();
   const n = Math.max(1, Math.round(e.w * 2));
@@ -177,6 +192,7 @@ function skatePickup() {
 }
 
 export function entityObject(e: Entity, c: City): THREE.Object3D {
+  if (e.kind === 'crate' && c.id === 'safi') return pots(e);
   switch (e.kind) {
     case 'can':
       return charbaBottle(1.25);
@@ -291,6 +307,23 @@ export function landmark(kind: Landmark, c: City) {
     case 'palm':
       g.add(cyl(0.6, 0.9, 18, 6, col, 0, 9));
       g.add(sphere(4.5, col, 0, 19, 0, 6));
+      break;
+    case 'fortress':
+      // Ksar el Bahr: the Portuguese sea castle, square bastions with battlements.
+      g.add(box(34, 12, 14, col, 0, 6));
+      for (const x of [-17, 17]) g.add(box(9, 17, 9, col, x, 8.5));
+      for (let i = 0; i < 9; i++) g.add(box(2, 2, 14.4, col, -16 + i * 4, 13));
+      for (const x of [-17, 17]) for (const dx of [-3, 3]) g.add(box(2, 2, 9.4, col, x + dx, 18));
+      break;
+    case 'kiln':
+      // Pottery kilns on the potters' hill, beehive domes with a smoke stack.
+      g.add(box(18, 6, 10, col, 0, 3));
+      for (const x of [-5, 5]) {
+        const k = new THREE.Mesh(geo('kiln', () => new THREE.SphereGeometry(4, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0xb5562c));
+        k.position.set(x, 6, 0);
+        g.add(k);
+      }
+      g.add(cyl(0.8, 1, 8, 6, 0x7b3f1d, 0, 10));
       break;
     case 'tower':
       g.add(box(12, 40, 12, col, 0, 20));

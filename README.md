@@ -1,7 +1,7 @@
 # Charbaman
 
 An orange, Moroccan take on the 1999 PS1 auto-runner *Pepsiman*, built with Expo for iOS and Android.
-Charbaman runs through Casablanca, Marrakech, Fes and Tangier collecting Charba bottles, and every city
+Charbaman runs through Casablanca, Safi, Marrakech, Fes and Tangier collecting Charba bottles, and every city
 ends with a chase from a giant rolling Charba bottle.
 
 ## Play it
@@ -16,7 +16,7 @@ On web: arrow keys / WASD, space to jump, P to pause.
 
 ## What is in the game
 
-- 4 city stages with their own skyline, colours, taxis and difficulty, unlocked one after another
+- 5 city stages with their own skyline, colours, taxis and difficulty, unlocked one after another
 - Endless mode that cycles through the cities and speeds up
 - 3 hits of health, 3 lives, checkpoints, an extra life every 25 bottles
 - Skateboard power-up (speed) and the tajine-on-the-head gag that flips your controls
@@ -31,7 +31,7 @@ On web: arrow keys / WASD, space to jump, P to pause.
 3. Deploy the rules: `npx firebase-tools deploy --only firestore:rules` (rules are in `firebase/firestore.rules`).
 4. Restart `npx expo start`.
 
-Scores live at `leaderboards/{endless|casablanca|marrakech|fes|tangier}/scores`. Without a `.env`, the game
+Scores live at `leaderboards/{endless|casablanca|safi|marrakech|fes|tangier}/scores`. Without a `.env`, the game
 keeps working and the leaderboard shows scores saved on the phone.
 
 ## 3D hero model

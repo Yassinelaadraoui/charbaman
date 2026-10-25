@@ -155,6 +155,20 @@ export class GameRenderer {
       l.position.set(-120 + j * 80 + hash(c.seed + j) * 20, 0, -135 - (j % 2) * 15);
       this.skyline.add(l);
     });
+    // The skyline sits beyond the fog; it is already painted in hazy colours, so let it ignore fog.
+    const noFog = new Map<THREE.Material, THREE.Material>();
+    this.skyline.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const src = m.material as THREE.Material;
+      let clone = noFog.get(src);
+      if (!clone) {
+        clone = src.clone();
+        (clone as THREE.MeshLambertMaterial).fog = false;
+        noFog.set(src, clone);
+      }
+      m.material = clone;
+    });
     // City change: drop pooled props so they are rebuilt in the new colours.
     for (const [, p] of this.pool) this.scene.remove(p.obj);
     this.pool.clear();

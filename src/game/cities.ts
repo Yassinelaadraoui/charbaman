@@ -1,7 +1,7 @@
 // Each city is a stage, like San Francisco / New York / Texas in the original.
 // Every stage ends with a chase from a giant rolling Charba bottle.
 
-export type Landmark = 'minaret' | 'dome' | 'gate' | 'lighthouse' | 'palm' | 'tower';
+export type Landmark = 'minaret' | 'dome' | 'gate' | 'lighthouse' | 'palm' | 'tower' | 'fortress' | 'kiln';
 
 export type City = {
   id: string;
@@ -52,6 +52,30 @@ export const CITIES: City[] = [
     baseSpeed: 15,
     density: 0.45,
     seed: 11,
+  },
+  {
+    id: 'safi',
+    name: 'Safi',
+    arabic: 'آسفي',
+    tagline: 'Leap the pottery stacks by Ksar el Bahr',
+    skyTop: '#3A9AD9',
+    skyBottom: '#FFE3B8',
+    sun: '#FFF1C1',
+    far: '#C9A27A',
+    near: '#F3E9DA',
+    accent: '#2E7D32',
+    ground: ['#D8C3A5', '#CDB797'],
+    road: ['#6B6460', '#645D59'],
+    curb: ['#F3E9DA', '#2E7D32'],
+    line: '#F3E9DA',
+    taxi: '#2B7BB9',
+    landmarks: ['fortress', 'kiln', 'minaret', 'kiln'],
+    sea: '#1F6FA8',
+    length: 1180,
+    chaseLength: 400,
+    baseSpeed: 15.8,
+    density: 0.5,
+    seed: 17,
   },
   {
     id: 'marrakech',
