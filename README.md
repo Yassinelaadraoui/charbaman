@@ -50,6 +50,12 @@ python3 scripts/convert-hero.py path/to/model.obj src/game/three/heroMesh.ts
 Current placeholder model: "3D Pepsiman" by ChristianDPS on Sketchfab, recoloured. It is a fan model of a
 PepsiCo character, so replace it with an original Charbaman model before publishing to the stores.
 
+## Credits
+
+- Taxi: "Hong Kong Taxi" (https://sketchfab.com/3d-models/hong-kong-taxi-b4e5ecc01a6e41e9a383302e728c8535)
+  by Goedude (https://sketchfab.com/Goedude), licensed under CC-BY-4.0. Decimated and recoloured per city
+  with `scripts/convert-taxi.py`.
+
 ## Code map
 
 - `src/game/engine.ts` game rules: physics, collisions, track generation, chase

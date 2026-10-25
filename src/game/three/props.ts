@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { City, Landmark } from '../cities';
 import type { Entity } from '../engine';
+import { TAXI_PARTS } from './taxiMesh';
 
 // Low-poly, flat-shaded props in the spirit of the PS1 original.
 // Geometries and materials are shared and cached so pooled objects are cheap.
@@ -103,21 +104,46 @@ function awning(e: Entity, c: City) {
   return g;
 }
 
-function taxi(e: Entity, c: City) {
-  const g = new THREE.Group();
-  const w = e.w * 2;
-  g.add(box(w, 0.6, e.depth, c.taxi, 0, 0.55));
-  g.add(box(w * 0.82, 0.5, e.depth * 0.55, c.taxi, 0, 1.1, 0.1));
-  g.add(box(w * 0.7, 0.36, 0.02, 0x22313f, 0, 1.12, 0.1 + (e.depth * 0.55) / 2 + 0.01));
-  g.add(box(0.5, 0.16, 0.3, WHITE, 0, 1.43, 0.1));
-  for (const sx of [-1, 1]) {
-    g.add(box(0.3, 0.14, 0.04, 0xff2e2e, sx * (w / 2 - 0.22), 0.7, e.depth / 2 + 0.01));
-    for (const sz of [-1, 1]) {
-      const wheel = cyl(0.3, 0.3, 0.22, 10, 0x111111, sx * (w / 2 - 0.05), 0.3, sz * (e.depth / 2 - 0.6));
-      wheel.rotation.z = Math.PI / 2;
-      g.add(wheel);
-    }
+const TAXI_COLORS: Record<string, number> = {
+  dark: 0x1a1a1a,
+  tyre: 0x111111,
+  glass: 0x22313f,
+  chrome: 0xb8bcc2,
+  rim: 0x8a8f96,
+  headlight: 0xfff4d0,
+  taillight: 0xff2e2e,
+  sign: 0xffffff,
+};
+
+// Double-sided: the decimated shell has some thin panels whose back faces we can see.
+const taxiMats = new Map<string, THREE.Material>();
+function taxiMat(part: string, color: number | string) {
+  const key = `${part}|${color}`;
+  let m = taxiMats.get(key);
+  if (!m) {
+    m =
+      part === 'headlight' || part === 'taillight'
+        ? new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+        : new THREE.MeshLambertMaterial({ color, flatShading: true, side: THREE.DoubleSide });
+    taxiMats.set(key, m);
   }
+  return m;
+}
+
+// Petit taxi built from the decimated taxi model; only the body takes the city colour.
+function taxi(_e: Entity, c: City) {
+  const g = new THREE.Group();
+  for (const [name, part] of Object.entries(TAXI_PARTS)) {
+    const geom = geo(`taxi-${name}`, () => {
+      const b = new THREE.BufferGeometry();
+      b.setAttribute('position', new THREE.Float32BufferAttribute(part.p, 3));
+      b.setIndex(part.i);
+      b.computeVertexNormals();
+      return b;
+    });
+    g.add(new THREE.Mesh(geom, taxiMat(name, name === 'body' ? c.taxi : TAXI_COLORS[name])));
+  }
+  g.rotation.y = Math.PI; // model faces +z; traffic drives away from the camera like the hero
   return g;
 }
 

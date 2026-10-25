@@ -217,15 +217,15 @@ function pattern(s: GameState, z: number, inChase: boolean): number {
   if (r < 0.6) {
     const x = laneX(s);
     const moving = rand(s) < 0.5;
-    add(s, { kind: 'taxi', z, x, w: 0.95, h: 1.5, depth: 3.6, vz: moving ? range(s, 4, 8) : 0 });
+    add(s, { kind: 'taxi', z, x, w: 0.85, h: 1.4, depth: 3.8, vz: moving ? range(s, 4, 8) : 0 });
     const side = x > 0 ? -1.8 : 1.8;
     canLine(s, z - 3, x + side, x + side, 3);
     return 10;
   }
   if (r < 0.7) {
     const gap = range(s, -1.2, 1.2);
-    add(s, { kind: 'taxi', z, x: gap - 2.05, w: 0.95, h: 1.5, depth: 3.6 });
-    add(s, { kind: 'taxi', z: z + range(s, 0, 1.5), x: gap + 2.05, w: 0.95, h: 1.5, depth: 3.6 });
+    add(s, { kind: 'taxi', z, x: gap - 2.05, w: 0.85, h: 1.4, depth: 3.8 });
+    add(s, { kind: 'taxi', z: z + range(s, 0, 1.5), x: gap + 2.05, w: 0.85, h: 1.4, depth: 3.8 });
     canLine(s, z - 2, gap, gap, 3);
     return 10;
   }

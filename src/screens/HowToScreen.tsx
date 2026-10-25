@@ -31,6 +31,9 @@ export function HowToScreen({ onBack }: { onBack: () => void }) {
               </View>
             </View>
           ))}
+          <Text style={styles.credits}>
+            Credits: taxi based on "Hong Kong Taxi" by Goedude (sketchfab.com/Goedude), licensed under CC-BY-4.0.
+          </Text>
         </ScrollView>
       </Screen>
     </LinearGradient>
@@ -43,4 +46,5 @@ const styles = StyleSheet.create({
   icon: { fontSize: 28 },
   head: { color: colors.white, fontWeight: '900', fontSize: 17 },
   body: { color: colors.cream, fontWeight: '600', fontSize: 14, marginTop: 2 },
+  credits: { color: colors.cream, fontSize: 11, marginTop: 10, opacity: 0.8 },
 });
