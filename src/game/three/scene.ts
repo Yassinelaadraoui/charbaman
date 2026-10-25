@@ -52,6 +52,11 @@ export class GameRenderer {
 
   constructor(gl: WebGLRenderingContext, width: number, height: number, onFrameEnd?: () => void) {
     this.onFrameEnd = onFrameEnd;
+    // expo-gl's context is WebGL1-shaped, so three is pinned to r162 (the last release that accepts WebGL1).
+    const g = gl as WebGLRenderingContext & { getContextAttributes?: () => WebGLContextAttributes | null };
+    if (typeof g.getContextAttributes !== 'function') {
+      g.getContextAttributes = () => ({ alpha: true, antialias: false, depth: true, stencil: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
+    }
     // expo-gl gives a bare GL context; three only needs a canvas-shaped object around it.
     const canvas = {
       width: gl.drawingBufferWidth,

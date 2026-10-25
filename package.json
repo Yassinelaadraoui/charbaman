@@ -15,11 +15,11 @@
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
     "react-native-web": "~0.21.4",
-    "three": "^0.186.1"
+    "three": "0.162.0"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
-    "@types/three": "^0.186.0",
+    "@types/three": "0.162.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
