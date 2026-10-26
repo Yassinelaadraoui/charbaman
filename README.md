@@ -75,6 +75,9 @@ The other models were simplified and their textures baked into small atlases wit
 - "Traditional Moroccan Terracotta Tagine" by laabidate (https://sketchfab.com/laabidate)
 - "Majmar - Stylized Prop Tier I" by Mrigua Mohamed (https://sketchfab.com/mrigua)
 - "fruit market stall" by Isa_van_den_Bosch (https://sketchfab.com/Isa_van_den_Bosch)
+- "Realistic Animated Donkey 3D Model" by WildMesh 3D (https://sketchfab.com/WildMesh_3D), posed with
+  `scripts/skin-to-static.py`
+- "Chicken" by MAXDESIGN-3D (https://sketchfab.com/MAXDESIGN)
 
 Hero: "Spiderman Multiverse(Textured)(Rigged)" by CAPTAAINR (https://sketchfab.com/CAPTAAINR), CC-BY-4.0,
 converted with `scripts/convert-rigged-hero.py` (repainted orange and silver, emblem removed) and animated in code

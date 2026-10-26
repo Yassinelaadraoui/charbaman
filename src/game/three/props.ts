@@ -7,6 +7,8 @@ import { bakedGeometry, bakedTexture } from './models/decode';
 import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
 import { BOY } from './models/boy';
+import { CHICKEN } from './models/chicken';
+import { DONKEY } from './models/donkey';
 import { FRUIT_STALL } from './models/fruitStall';
 import { MAJMAR } from './models/majmar';
 import { TAGINE } from './models/tagine';
@@ -234,12 +236,12 @@ function scooter() {
 function donkeyCart(e: Entity) {
   const g = new THREE.Group();
   const w = e.w * 2;
-  // donkey in front (further away from the player)
-  g.add(box(0.45, 0.55, 1.0, 0x9e9e9e, 0, 0.95, -1.2));
-  g.add(box(0.3, 0.35, 0.45, 0x8d8d8d, 0, 1.25, -1.8));
-  g.add(box(0.06, 0.3, 0.06, 0x8d8d8d, -0.1, 1.55, -1.75));
-  g.add(box(0.06, 0.3, 0.06, 0x8d8d8d, 0.1, 1.55, -1.75));
-  for (const sx of [-0.15, 0.15]) for (const sz of [-0.8, -1.6]) g.add(box(0.1, 0.65, 0.1, 0x7d7d7d, sx, 0.33, sz));
+  // donkey in front (further away from the player); the model faces +x
+  const donkey = model('donkey', DONKEY, { length: 1.9 });
+  donkey.rotation.y = Math.PI / 2;
+  donkey.position.z = -1.5;
+  donkey.name = 'donkey';
+  g.add(donkey);
   // cart full of fruit
   g.add(box(w, 0.5, 1.4, 0x8b5a2b, 0, 0.75, 0.3));
   for (let i = 0; i < 6; i++) g.add(sphere(0.18, i % 2 ? ORANGE : 0x7cb518, -w / 2 + 0.25 + (i % 3) * (w / 3), 1.1, 0.0 + Math.floor(i / 3) * 0.6, 6));
@@ -397,7 +399,23 @@ export function warmModels(c: City) {
   model('dacia', DACIA, {}, grandTaxiPaint);
   model('police', POLICE_CAR, {});
   model('boy', BOY, {});
-  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL]] as const) model(key, data, {});
+  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['donkey', DONKEY], ['chicken', CHICKEN]] as const) model(key, data, {});
+}
+
+// A couple of chickens pecking about on the pavement.
+export function chickens(seed: number) {
+  const g = new THREE.Group();
+  for (let i = 0; i < 2; i++) {
+    const m = model('chicken', CHICKEN, { height: 0.42 });
+    const holder = new THREE.Group();
+    holder.position.set((i - 0.5) * 0.7, 0, i * 0.5);
+    holder.rotation.y = seed * 2.3 + i * 2.1;
+    holder.name = 'peck';
+    holder.rotation.order = 'YXZ'; // peck about the chicken's own axis
+    holder.add(m);
+    g.add(holder);
+  }
+  return g;
 }
 
 // A boy cheering from the pavement, arms out.

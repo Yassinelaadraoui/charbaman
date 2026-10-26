@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { City } from '../cities';
 import { GameState, ROAD_HALF, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall } from './props';
+import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -262,7 +262,11 @@ export class GameRenderer {
       o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
       if (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
       if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? -0.5 : 0.5;
-      if (e.kind === 'donkey') o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
+      if (e.kind === 'donkey') {
+        o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
+        const dk = o.getObjectByName('donkey');
+        if (dk) dk.position.y = Math.abs(Math.sin(t * 7 + e.id)) * 0.05; // plodding
+      }
       const spin = o.getObjectByName('spin');
       if (spin) {
         spin.rotation.y = e.done ? 0 : t * 4;
@@ -303,6 +307,12 @@ export class GameRenderer {
         p.position.set(side * (ROAD_HALF + (kind === 'stall' ? 1.9 : 1.3)) + bend(d), 0, -d);
         if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
         if (kind === 'lamp') p.rotation.y = side > 0 ? 0 : Math.PI; // arm over the road
+        // Chickens wander the pavement here and there.
+        if (r2 > 0.62 && r2 < 0.72) {
+          const ch = this.use(`c${i}${side}`, () => chickens(i));
+          ch.position.set(side * (ROAD_HALF + 1.9) + bend(d - 1.5), 0, -(d - 1.5));
+          ch.children.forEach((h, k) => (h.rotation.x = Math.max(0, Math.sin(t * 6 + k * 2 + i)) * 0.6));
+        }
         // A tea table on the pavement here and there.
         if (r2 > 0.5 && r2 < 0.62) {
           const tt = this.use(`t${i}${side}`, () => teaTable());
