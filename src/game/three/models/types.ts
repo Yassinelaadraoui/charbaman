@@ -10,4 +10,5 @@ export type BakedModel = {
   atlas: number;
   jpeg: string;
   alpha?: string; // optional greyscale JPEG used as a cut-out mask
+  frames?: string[]; // more poses of the same triangles (like pos), blended as morph targets
 };

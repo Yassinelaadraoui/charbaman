@@ -13,12 +13,9 @@ import { DONKEY } from './models/donkey';
 import { FRUIT_STALL } from './models/fruitStall';
 import { MAJMAR } from './models/majmar';
 import { MINE_SIGN } from './models/mineSign';
-import { OLD_MAN_A } from './models/oldManA';
-import { OLD_MAN_B } from './models/oldManB';
-import { PIGEON_A } from './models/pigeonA';
-import { PIGEON_B } from './models/pigeonB';
-import { SEAGULL_A } from './models/seagullA';
-import { SEAGULL_B } from './models/seagullB';
+import { OLD_MAN } from './models/oldMan';
+import { PIGEON } from './models/pigeon';
+import { SEAGULL } from './models/seagull';
 import { TAGINE } from './models/tagine';
 import { JUICE_BOTTLE } from './models/juiceBottle';
 import { LAMPPOST } from './models/lamppost';
@@ -83,6 +80,9 @@ const sphere = (r: number, color: number | string, x = 0, y = 0, z = 0, seg = 8)
 // Models baked by scripts/bake-model.py (base at y=0, centred on x/z), each with its own texture atlas.
 const bakedMats = new Map<string, THREE.Material>();
 
+// People and animals get smooth normals; everything else keeps flat PS1 facets.
+const SMOOTH = new Set(['boy', 'chicken', 'donkey', 'oldman', 'pigeon', 'gull']);
+
 export function model(key: string, data: BakedModel, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (px: Uint8Array, i: number) => void) {
   let material = bakedMats.get(key);
   if (!material) {
@@ -90,7 +90,7 @@ export function model(key: string, data: BakedModel, fit: { height?: number; len
     material = new THREE.MeshLambertMaterial({ map: bakedTexture(data, recolor), side: THREE.DoubleSide, alphaTest: data.alpha ? 0.5 : 0 });
     bakedMats.set(key, material);
   }
-  const m = new THREE.Mesh(geo(`model-${key}`, () => bakedGeometry(data)), material);
+  const m = new THREE.Mesh(geo(`model-${key}`, () => bakedGeometry(data, SMOOTH.has(key))), material);
   const [w, h, d] = data.size;
   let k = fit.length !== undefined ? fit.length / Math.max(w, d) : (fit.height ?? 1) / h;
   if (fit.maxSide !== undefined) k = Math.min(k, fit.maxSide / Math.max(w, d));
@@ -98,27 +98,27 @@ export function model(key: string, data: BakedModel, fit: { height?: number; len
   return m;
 }
 
-// An animation baked as a few static frames (scripts/skin-to-static.py with a time, then bake-model.py).
-// Every frame is scaled like the first so they line up; showFrame picks the one to draw.
-function frames(key: string, list: BakedModel[], fit: { height?: number; length?: number }) {
-  const g = new THREE.Group();
-  g.name = 'frames';
-  let k = 0;
-  list.forEach((data, i) => {
-    const m = model(`${key}${i}`, data, fit);
-    if (i === 0) k = m.scale.x;
-    m.scale.setScalar(k);
-    m.visible = i === 0;
-    g.add(m);
+// Models baked with poses (bake-model.py --frames) blend between them with morph targets.
+// `phase` counts poses: 2.5 is halfway from the third pose to the fourth. Looping wraps the last pose
+// back to the first; otherwise it plays forward and back (for motions that are not a cycle).
+export function animate(o: THREE.Object3D, phase: number, loop = true) {
+  o.traverse((c) => {
+    const infl = (c as THREE.Mesh).morphTargetInfluences;
+    if (!infl) return;
+    const n = infl.length + 1;
+    let f: number;
+    if (loop) f = ((phase % n) + n) % n;
+    else {
+      const p = ((phase % (2 * n - 2)) + 2 * n - 2) % (2 * n - 2);
+      f = p <= n - 1 ? p : 2 * n - 2 - p;
+    }
+    const a = Math.floor(f);
+    const w = f - a;
+    const b = loop ? (a + 1) % n : Math.min(a + 1, n - 1);
+    infl.fill(0);
+    if (a > 0) infl[a - 1] += 1 - w;
+    if (b > 0) infl[b - 1] += w;
   });
-  return g;
-}
-
-export function showFrame(o: THREE.Object3D, frame: number) {
-  const f = o.name === 'frames' ? o : o.getObjectByName('frames');
-  if (!f) return;
-  const n = f.children.length;
-  f.children.forEach((m, i) => (m.visible = i === ((frame % n) + n) % n));
 }
 
 const ORANGE = 0xff7a00;
@@ -430,8 +430,8 @@ export function warmModels(c: City) {
   model('dacia', DACIA, {}, grandTaxiPaint);
   model('police', POLICE_CAR, {});
   model('boy', BOY, {});
-  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman0', OLD_MAN_A], ['oldman1', OLD_MAN_B], ['pigeon0', PIGEON_A], ['pigeon1', PIGEON_B]] as const) model(key, data, {});
-  if (c.sea) for (const [key, data] of [['gull0', SEAGULL_A], ['gull1', SEAGULL_B]] as const) model(key, data, {});
+  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman', OLD_MAN], ['pigeon', PIGEON]] as const) model(key, data, {});
+  if (c.sea) model('gull', SEAGULL, {});
 }
 
 // A bus shelter on the pavement, open side to the street.
@@ -443,30 +443,33 @@ export function busStop(side: number) {
   return g;
 }
 
-// An old man in a djellaba strolling down the pavement toward you (two walking frames).
+// An old man in a djellaba strolling down the pavement toward you: 8 poses of one 1.44 s walk cycle
+// that covers 2 m, so walk him at 1.4 m/s or his feet slide.
+export const OLD_MAN_CYCLE = { poses: 8, seconds: 1.44, speed: 1.4 };
 export function oldMan() {
   const g = new THREE.Group();
-  g.add(frames('oldman', [OLD_MAN_A, OLD_MAN_B], { height: 1.7 }));
+  g.add(model('oldman', OLD_MAN, { height: 1.7 }));
   return g;
 }
 
-// Three pigeons bobbing their heads on the pavement. Each sits in a holder turned its own way.
+// Three pigeons bobbing their heads on the pavement (5 poses, played forward and back).
 export function pigeons(seed: number) {
   const g = new THREE.Group();
   for (let i = 0; i < 3; i++) {
     const holder = new THREE.Group();
     holder.position.set(Math.cos(seed + i * 2.1) * 0.45, 0, Math.sin(seed * 1.7 + i * 2.1) * 0.6);
     holder.rotation.y = seed * 1.9 + i * 2.4;
-    holder.add(frames('pigeon', [PIGEON_A, PIGEON_B], { length: 0.32 }));
+    holder.add(model('pigeon', PIGEON, { length: 0.32 }));
     g.add(holder);
   }
   return g;
 }
 
-// A seagull for the port cities, flapping (two frames). The model faces +z with its body at the origin.
+// A seagull for the port cities: 8 poses of a 2.08 s glide-and-flap loop. Faces +z, body at the origin.
+export const GULL_CYCLE = { poses: 8, seconds: 2.08 };
 export function seagull() {
   const g = new THREE.Group();
-  g.add(frames('gull', [SEAGULL_A, SEAGULL_B], { length: 1.3 }));
+  g.add(model('gull', SEAGULL, { length: 1.3 }));
   return g;
 }
 

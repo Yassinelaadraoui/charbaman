@@ -11,6 +11,11 @@ the mesh is tiny. Bigger triangles get bigger patches.
 
 Output (all base64): positions as uint16 within the bounding box, UVs as uint16, and the atlas as
 a JPEG. Metres, base on y=0, centred on x/z (or around --origin).
+
+Animation: pose the model a few times with scripts/skin-to-static.py and pass the first pose as <model>
+and the rest with --frames. Every corner of the simplified mesh is pinned to its spot on the first pose's
+surface and follows that spot through the other poses, so all poses share one mesh and one atlas and the
+game can blend between them (morph targets).
 """
 import argparse
 import base64
@@ -40,6 +45,11 @@ ap.add_argument('--passthrough', action='store_true', help='single-texture low-p
                 'UVs and texture (with alpha) as they are')
 ap.add_argument('--origin', default='', help='x,y,z: keep the model around this point instead of centring it '
                 'on its box (so animation frames baked one by one line up)')
+ap.add_argument('--frames', nargs='*', default=[], help='more poses of the same model (same meshes and vertex '
+                'order, e.g. from skin-to-static.py at other times) to store as blend shapes')
+ap.add_argument('--lock-xz', action='store_true', help='with --frames: cancel each pose\'s drift along x/z '
+                '(root motion), so a walk stays on the spot')
+ap.add_argument('--lift', type=float, default=1.8, help='most the colours may be brightened (1 = never)')
 ap.add_argument('--credit', default='')
 args = ap.parse_args()
 rng = np.random.default_rng(1)
@@ -91,18 +101,22 @@ def jpeg_b64(img):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def pack_mesh(T, uv, size):
+def pack_mesh(T, uv, size, poses=()):
     b64 = lambda a: base64.b64encode(a.tobytes()).decode()
-    flat = T.reshape(-1, 3)
-    pmin = flat.min(axis=0)
-    span = np.maximum(flat.max(axis=0) - pmin, 1e-6)
-    return {
+    flats = [T.reshape(-1, 3)] + [P.reshape(-1, 3) for P in poses]
+    pmin = np.min([f.min(axis=0) for f in flats], axis=0)
+    span = np.maximum(np.max([f.max(axis=0) for f in flats], axis=0) - pmin, 1e-6)
+    q = lambda f: b64(np.round((f - pmin) / span * 65535).astype('<u2'))
+    data = {
         'size': [round(float(x), 3) for x in size],
         'min': [round(float(x), 5) for x in pmin],
         'span': [round(float(x), 5) for x in span],
-        'pos': b64(np.round((flat - pmin) / span * 65535).astype('<u2')),
+        'pos': q(flats[0]),
         'uv': b64(np.round(np.clip(uv.reshape(-1, 2), 0, 1) * 65535).astype('<u2')),
     }
+    if poses:
+        data['frames'] = [q(f) for f in flats[1:]]
+    return data
 
 
 def paint(m):
@@ -117,10 +131,16 @@ def paint(m):
 
 
 # 1. Dense colour samples on the original surface.
-scene = trimesh.load(args.src, force='scene')
-meshes = [m for m in scene.dump(concatenate=False) if isinstance(m, trimesh.Trimesh) and len(m.faces)]
 matname = lambda m: getattr(getattr(m.visual, 'material', None), 'name', '') or ''
-meshes = [m for m in meshes if not any(x in matname(m) for x in args.exclude)]
+
+
+def load_meshes(path):
+    scene = trimesh.load(path, force='scene')
+    ms = [m for m in scene.dump(concatenate=False) if isinstance(m, trimesh.Trimesh) and len(m.faces)]
+    return [m for m in ms if not any(x in matname(m) for x in args.exclude)]
+
+
+meshes = load_meshes(args.src)
 
 if args.passthrough:
     m = trimesh.util.concatenate(meshes) if len(meshes) > 1 else meshes[0]
@@ -285,7 +305,7 @@ best = np.where(facing.any(axis=1), facing.argmax(axis=1), 0)
 colour = cols[idx[np.arange(len(idx)), best]]
 # Many of these textures are dark once lit flatly; lift them so the brightest tenth sits near white.
 lum = colour.mean(axis=1)
-k = min(1.8, 0.85 / max(np.percentile(lum, 90), 1e-3))
+k = min(args.lift, 0.85 / max(np.percentile(lum, 90), 1e-3))
 colour = colour * np.minimum(k, 1 / np.maximum(colour.max(axis=1), 1e-3))[:, None]  # never clip, keep hues
 atlas = np.zeros((A, A, 3))
 atlas[tex_xy[:, 1], tex_xy[:, 0]] = colour
@@ -293,8 +313,24 @@ img = Image.fromarray((atlas * 255).round().astype(np.uint8))
 jpg = io.BytesIO()
 img.save(jpg, 'JPEG', quality=args.quality)
 
-# 5. Write.
-data = pack_mesh(T, uvs / A, size)
+# 5. The other poses: pin every corner to the closest point of the first pose's surface (triangle and
+# barycentric coordinates) and read that point back off each pose.
+poses = []
+if args.frames:
+    base = trimesh.Trimesh(allv, allf, process=False)
+    corners = T.reshape(-1, 3)
+    near, _, tri = trimesh.proximity.closest_point(base, corners)
+    bary = trimesh.triangles.points_to_barycentric(base.triangles[tri], near)
+    for path in args.frames:
+        fv = np.vstack([m.vertices for m in load_meshes(path)]) - centre
+        assert fv.shape == allv.shape, f'{path} does not have the same meshes as {args.src}'
+        if args.lock_xz:
+            drift = fv.mean(axis=0) - allv.mean(axis=0)
+            fv[:, [0, 2]] -= drift[[0, 2]]
+        poses.append(((fv[allf[tri]] * bary[:, :, None]).sum(axis=1) + (corners - near)).reshape(-1, 3, 3))
+
+# 6. Write.
+data = pack_mesh(T, uvs / A, size, poses)
 data['atlas'] = A
 data['jpeg'] = base64.b64encode(jpg.getvalue()).decode()
 write(data, n)

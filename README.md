@@ -47,6 +47,21 @@ python3 scripts/convert-rigged-hero.py path/to/hero.glb src/game/three/heroRigge
 
 Then check the bone names in `BONE_OF` in `hero.ts` match the new skeleton.
 
+## Animated props
+
+The old man, pigeons and gulls are baked as a few poses of one mesh with one texture, and the game blends
+between them (morph targets). Pose the skinned model at a few times with `skin-to-static.py`, then bake the
+first pose and pass the rest with `--frames`:
+
+```bash
+for i in 0 1 2 3 4 5 6 7; do python3 scripts/skin-to-static.py walk.glb /tmp/walk$i.glb 0 $(python3 -c "print(0.36 + $i * 0.18)"); done
+python3 scripts/bake-model.py /tmp/walk0.glb src/game/three/models/oldMan.ts OLD_MAN --tris 1500 --atlas 512 \
+  --quality 90 --lift 1.25 --lock-xz --frames /tmp/walk{1,2,3,4,5,6,7}.glb
+```
+
+`--lock-xz` keeps a walk on the spot; the game moves the walker instead, at the clip's own speed so the feet
+don't slide (`OLD_MAN_CYCLE` in `props.ts`).
+
 ## Credits
 
 - Taxi: "Hong Kong Taxi" (https://sketchfab.com/3d-models/hong-kong-taxi-b4e5ecc01a6e41e9a383302e728c8535)
@@ -80,8 +95,7 @@ The other models were simplified and their textures baked into small atlases wit
 - "Chicken" by MAXDESIGN-3D (https://sketchfab.com/MAXDESIGN)
 - "Bus Stop" by evtushenko (https://sketchfab.com/evtushenko)
 - "Landmine sign" by AbouAli (https://sketchfab.com/abouali), the danger signs before the chase
-- "Indian Old man walking" by anandmohan662 (https://sketchfab.com/anandmohan662), two frames of the walk baked with
-  `scripts/skin-to-static.py in.glb out.glb 0 <seconds>`
+- "Indian Old man walking" by anandmohan662 (https://sketchfab.com/anandmohan662)
 - "Pigeon" by LostBoyz2078 (https://sketchfab.com/LostModels2025), licensed **CC-BY-NC-4.0**, and "Seagull" by kenchoo
   (https://sketchfab.com/kenchoo), licensed **CC-BY-NC-SA-4.0**. These two are non-commercial only, so replace them
   before selling the game or showing ads.
