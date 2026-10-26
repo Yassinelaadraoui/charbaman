@@ -8,19 +8,15 @@ import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
 import { BOY } from './models/boy';
 import { BUS_STOP } from './models/busStop';
-import { CAT } from './models/cat';
 import { CHICKEN } from './models/chicken';
 import { DONKEY } from './models/donkey';
 import { FRUIT_STALL } from './models/fruitStall';
 import { MAJMAR } from './models/majmar';
 import { MINE_SIGN } from './models/mineSign';
 import { OLD_MAN } from './models/oldMan';
-import { PIGEON } from './models/pigeon';
-import { SEAGULL } from './models/seagull';
 import { TAGINE } from './models/tagine';
 import { SPICE_MARKET } from './models/spiceMarket';
 import { JUICE_BOTTLE } from './models/juiceBottle';
-import { LAMPPOST } from './models/lamppost';
 import { MAPLE_TREE } from './models/mapleTree';
 import { PALM_TREE } from './models/palmTree';
 import { TEA_TABLE } from './models/teaTable';
@@ -83,7 +79,7 @@ const sphere = (r: number, color: number | string, x = 0, y = 0, z = 0, seg = 8)
 const bakedMats = new Map<string, THREE.Material>();
 
 // People and animals get smooth normals; everything else keeps flat PS1 facets.
-const SMOOTH = new Set(['boy', 'chicken', 'donkey', 'oldman', 'pigeon', 'gull', 'cat']);
+const SMOOTH = new Set(['boy', 'chicken', 'donkey', 'oldman']);
 
 export function model(key: string, data: BakedModel, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (px: Uint8Array, i: number) => void) {
   let material = bakedMats.get(key);
@@ -105,6 +101,9 @@ export function model(key: string, data: BakedModel, fit: { height?: number; len
 // back to the first; otherwise it plays forward and back (for motions that are not a cycle).
 export function animate(o: THREE.Object3D, phase: number, loop = true) {
   o.traverse((c) => {
+    // Models built in code move their own parts.
+    const own = c.userData.animate as ((phase: number, loop: boolean) => void) | undefined;
+    if (own) own(phase, loop);
     const infl = (c as THREE.Mesh).morphTargetInfluences;
     if (!infl) return;
     const n = infl.length + 1;
@@ -150,19 +149,6 @@ function pots(e: Entity) {
     g.add(cyl(step * 0.32, step * 0.42, e.h * 0.75, 10, glaze, x, e.h * 0.375));
     g.add(cyl(step * 0.2, step * 0.3, e.h * 0.25, 10, 0xb5562c, x, e.h * 0.875));
     g.add(cyl(step * 0.26, step * 0.26, 0.05, 10, 0xf3e9da, x, e.h * 0.55));
-  }
-  return g;
-}
-
-function crates(e: Entity) {
-  const g = new THREE.Group();
-  const n = Math.max(1, Math.round(e.w * 2));
-  const cw = (e.w * 2) / n;
-  for (let i = 0; i < n; i++) {
-    const x = -e.w + cw * (i + 0.5);
-    g.add(box(cw * 0.94, e.h, e.depth, i % 2 ? 0xb07a45 : 0xa06a38, x, e.h / 2));
-    g.add(box(cw * 0.96, 0.06, e.depth * 1.02, 0x6b4423, x, e.h * 0.35));
-    for (let k = -1; k <= 1; k++) g.add(sphere(0.13, ORANGE, x + k * cw * 0.28, e.h + 0.08, 0, 6));
   }
   return g;
 }
@@ -435,8 +421,7 @@ export function warmModels(c: City) {
   model('dacia', DACIA, {}, grandTaxiPaint);
   model('police', POLICE_CAR, {});
   model('boy', BOY, {});
-  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['spice', SPICE_MARKET], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman', OLD_MAN], ['pigeon', PIGEON], ['cat', CAT]] as const) model(key, data, {});
-  if (c.sea) model('gull', SEAGULL, {});
+  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['spice', SPICE_MARKET], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman', OLD_MAN]] as const) model(key, data, {});
 }
 
 // A bus shelter on the pavement, open side to the street.
@@ -457,32 +442,127 @@ export function oldMan() {
   return g;
 }
 
-// A street cat padding along the foot of the houses toward you: 8 poses of a 0.77 s walk on the spot.
+// The little animals are built from simple shapes, PS1 style, and move their parts in code. Their phases
+// follow the same pose counts as the baked models (animate()), so the scene drives them the same way.
+const ellipsoid = (r: number, sx: number, sy: number, sz: number, color: number, x = 0, y = 0, z = 0, seg = 8) => {
+  const m = sphere(r, color, x, y, z, seg);
+  m.scale.set(sx, sy, sz);
+  return m;
+};
+
+// A street cat padding along the foot of the houses toward you (faces +z). One walk cycle is 8 "poses".
 export const CAT_CYCLE = { poses: 8, seconds: 0.767, speed: 0.8 };
-export function cat() {
+const CAT_COATS = [0xd98a3a, 0x2a2a2a, 0xe6e1d6, 0x8c8378, 0xc9a27a];
+export function cat(seed = 0) {
+  const coat = CAT_COATS[Math.abs(Math.floor(seed)) % CAT_COATS.length];
   const g = new THREE.Group();
-  g.add(model('cat', CAT, { length: 0.62 }));
+  const body = new THREE.Group();
+  body.add(ellipsoid(0.1, 0.8, 0.72, 2.0, coat, 0, 0.2, 0));
+  const head = new THREE.Group();
+  head.position.set(0, 0.28, 0.24);
+  head.add(sphere(0.075, coat, 0, 0, 0, 7));
+  for (const sx of [-1, 1]) {
+    const ear = cyl(0, 0.03, 0.06, 4, coat, sx * 0.04, 0.07, -0.01);
+    ear.rotation.z = -sx * 0.25;
+    head.add(ear, sphere(0.012, 0xc8d64a, sx * 0.028, 0.012, 0.065, 5));
+  }
+  head.add(sphere(0.01, 0xe58a8a, 0, -0.01, 0.075, 4));
+  body.add(head);
+  const legs: THREE.Group[] = [];
+  for (const [x, z] of [[-0.05, 0.13], [0.05, 0.13], [-0.05, -0.13], [0.05, -0.13]]) {
+    const hip = new THREE.Group();
+    hip.position.set(x, 0.17, z);
+    hip.add(cyl(0.018, 0.016, 0.17, 5, coat, 0, -0.085, 0));
+    legs.push(hip);
+    body.add(hip);
+  }
+  const tail = new THREE.Group();
+  tail.position.set(0, 0.24, -0.19);
+  const t1 = cyl(0.016, 0.014, 0.14, 5, coat, 0, 0.07, 0);
+  tail.add(t1);
+  tail.rotation.x = -0.9;
+  body.add(tail);
+  g.add(body);
+  g.userData.animate = (phase: number) => {
+    const a = (phase / CAT_CYCLE.poses) * Math.PI * 2;
+    const sw = Math.sin(a) * 0.45;
+    legs[0].rotation.x = legs[3].rotation.x = sw; // diagonal pairs move together
+    legs[1].rotation.x = legs[2].rotation.x = -sw;
+    body.position.y = Math.abs(Math.cos(a)) * 0.012;
+    tail.rotation.z = Math.sin(a / 2) * 0.35;
+    head.rotation.y = Math.sin(a / 4) * 0.15;
+  };
   return g;
 }
 
-// Three pigeons bobbing their heads on the pavement (5 poses, played forward and back).
+// Three pigeons bobbing their heads on the pavement. Each faces +x; the head thrusts forward and back.
+function pigeon() {
+  const g = new THREE.Group();
+  g.add(ellipsoid(0.09, 1.5, 1, 1, 0x8f9bab, 0, 0.13, 0));
+  g.add(ellipsoid(0.091, 1.2, 0.72, 1.03, 0x707c8a, -0.025, 0.14, 0)); // folded wings
+  const tail = box(0.12, 0.02, 0.07, 0x4d5560, -0.15, 0.12, 0);
+  tail.rotation.z = 0.25;
+  g.add(tail);
+  const head = new THREE.Group();
+  head.position.set(0.1, 0.18, 0);
+  head.add(sphere(0.045, 0x5f7f78, 0, 0, 0, 6)); // the green sheen of the neck
+  head.add(sphere(0.04, 0x5c6878, 0.03, 0.045, 0, 6));
+  const beak = cyl(0, 0.012, 0.035, 4, 0x3a3a3a, 0.08, 0.04, 0);
+  beak.rotation.z = -Math.PI / 2;
+  head.add(beak);
+  for (const sz of [-1, 1]) head.add(sphere(0.008, 0xe8a03a, 0.055, 0.055, sz * 0.03, 4));
+  g.add(head);
+  for (const sz of [-1, 1]) g.add(cyl(0.006, 0.006, 0.08, 4, 0xd9726b, 0, 0.04, sz * 0.025));
+  g.userData.animate = (phase: number) => {
+    const u = ((phase % 8) + 8) % 8;
+    const f = u <= 4 ? u / 4 : (8 - u) / 4; // forward and back
+    head.position.set(0.1 + f * 0.035, 0.18 - f * 0.012, 0);
+  };
+  return g;
+}
+
 export function pigeons(seed: number) {
   const g = new THREE.Group();
   for (let i = 0; i < 3; i++) {
     const holder = new THREE.Group();
     holder.position.set(Math.cos(seed + i * 2.1) * 0.45, 0, Math.sin(seed * 1.7 + i * 2.1) * 0.6);
     holder.rotation.y = seed * 1.9 + i * 2.4;
-    holder.add(model('pigeon', PIGEON, { length: 0.32 }));
+    holder.add(pigeon());
     g.add(holder);
   }
   return g;
 }
 
-// A seagull for the port cities: 8 poses of a 2.08 s glide-and-flap loop. Faces +z, body at the origin.
-export const GULL_CYCLE = { poses: 8, seconds: 2.08 };
+// A seagull for the port cities, wings flapping with the tips trailing. Faces +z, body at the origin.
+export const GULL_CYCLE = { poses: 8, seconds: 1.2 };
 export function seagull() {
   const g = new THREE.Group();
-  g.add(model('gull', SEAGULL, { length: 1.3 }));
+  g.add(ellipsoid(0.1, 0.9, 0.85, 2.2, 0xf2f2f0));
+  g.add(sphere(0.07, 0xf2f2f0, 0, 0.05, 0.22, 7));
+  const beak = cyl(0, 0.016, 0.07, 4, 0xf2c12e, 0, 0.04, 0.31);
+  beak.rotation.x = Math.PI / 2;
+  g.add(beak, box(0.14, 0.02, 0.14, 0xd0d4d8, 0, 0, -0.27));
+  const joints: { inner: THREE.Group; outer: THREE.Group; side: number }[] = [];
+  for (const side of [-1, 1]) {
+    const inner = new THREE.Group();
+    inner.position.set(side * 0.07, 0.03, 0.02);
+    inner.add(box(0.32, 0.02, 0.2, 0xb9c3cc, side * 0.16, 0, 0));
+    const outer = new THREE.Group();
+    outer.position.x = side * 0.32;
+    outer.add(box(0.26, 0.016, 0.15, 0xb9c3cc, side * 0.13, 0, -0.01));
+    outer.add(box(0.09, 0.017, 0.12, 0x222222, side * 0.3, 0, -0.02)); // black wingtips
+    inner.add(outer);
+    g.add(inner);
+    joints.push({ inner, outer, side });
+  }
+  g.userData.animate = (phase: number) => {
+    const a = Math.sin((phase / GULL_CYCLE.poses) * Math.PI * 2);
+    const lag = Math.sin((phase / GULL_CYCLE.poses) * Math.PI * 2 - 0.8);
+    for (const j of joints) {
+      j.inner.rotation.z = j.side * a * 0.45;
+      j.outer.rotation.z = j.side * lag * 0.35;
+    }
+  };
   return g;
 }
 
@@ -526,15 +606,22 @@ export function palm() {
   return g;
 }
 
-// Street lamp: the pole stands on the pavement and the arm reaches over the road (-x before turning).
+// Street lamp: a dark green pole on the pavement with an arm reaching over the road (-x before turning) and
+// a lantern hanging from it.
 export function lamp() {
   const g = new THREE.Group();
-  const m = model('lamppost', LAMPPOST, { height: 4.6 });
-  const k = m.scale.x;
-  m.position.x = -1.36 * k; // pole base to the origin
-  g.add(m);
-  const bulb = new THREE.Mesh(geo('bulb', () => new THREE.SphereGeometry(0.2, 8, 6)), mat(0xfff1b8, { emissive: true }));
-  bulb.position.set((-1.58 - 1.36) * k, 9.45 * k, 0);
+  const POLE = 0x1f2d26;
+  g.add(cyl(0.17, 0.2, 0.45, 8, POLE, 0, 0.22));
+  g.add(cyl(0.06, 0.1, 4.3, 8, POLE, 0, 2.6));
+  g.add(sphere(0.09, POLE, 0, 4.78, 0, 6));
+  g.add(box(1.25, 0.06, 0.06, POLE, -0.6, 4.6, 0));
+  const brace = cyl(0.025, 0.025, 0.75, 5, POLE, -0.3, 4.32, 0);
+  brace.rotation.z = -0.95;
+  g.add(brace);
+  g.add(cyl(0.012, 0.012, 0.16, 4, POLE, -1.2, 4.52, 0));
+  g.add(cyl(0.05, 0.17, 0.13, 6, POLE, -1.2, 4.38, 0)); // lantern cap
+  const bulb = new THREE.Mesh(geo('bulb', () => new THREE.SphereGeometry(0.14, 8, 6)), mat(0xfff1b8, { emissive: true }));
+  bulb.position.set(-1.2, 4.24, 0);
   g.add(bulb);
   return g;
 }

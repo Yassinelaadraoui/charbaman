@@ -73,6 +73,7 @@ export class GameRenderer {
   camHeight = 3.2;
   onFrameEnd?: () => void;
   debugCamera?: { pos: [number, number, number]; look: [number, number, number] }; // for automated playtests
+  lite = false; // Fast graphics: no pedestrians, animals or small street furniture, fewer particles
 
   constructor(gl: WebGLRenderingContext, width: number, height: number, onFrameEnd?: () => void) {
     this.onFrameEnd = onFrameEnd;
@@ -156,7 +157,8 @@ export class GameRenderer {
       m = new THREE.SpriteMaterial({ map: maskTexture(PARTICLES[b.tex]), color: b.color, transparent: true, depthWrite: false });
       this.spriteMats.set(key, m);
     }
-    for (let i = 0; i < b.n && this.particles.length < 80; i++) {
+    const count = this.lite ? Math.ceil(b.n / 2) : b.n;
+    for (let i = 0; i < count && this.particles.length < (this.lite ? 30 : 80); i++) {
       const a = (i / b.n) * Math.PI * 2 + Math.random() * 0.6;
       const sprite = new THREE.Sprite(m.clone());
       this.scene.add(sprite);
@@ -363,7 +365,7 @@ export class GameRenderer {
         const kinds = DECOR[c.id] ?? DECOR.default;
         const kind = kinds[Math.floor(r * kinds.length)];
         const shelter = !warn && r3 < 0.07 && kind !== 'spice';
-        const clear = !shelter && kind !== 'spice'; // room on the pavement for small props
+        const clear = !shelter && kind !== 'spice' && !this.lite; // room on the pavement for small props
         const variant = Math.floor(r * 6);
         if (hasModelHouses(c) && r2 < 0.6) {
           // Facade on the pavement line, the rest of the house behind it.
@@ -409,7 +411,7 @@ export class GameRenderer {
           ds.position.set(side * (ROAD_HALF + 0.75) + bend(d + 1), 0, -(d + 1));
         }
         // An old man strolls toward you, from where he was when he came into view.
-        if (r3 > 0.07 && r3 < 0.15) {
+        if (r3 > 0.07 && r3 < 0.15 && !this.lite) {
           const om = this.use(`om${i}${side}`, () => Object.assign(oldMan(), { userData: { born: t } }));
           const walked = t - om.userData.born;
           const dd = d + 1 - walked * OLD_MAN_CYCLE.speed;
@@ -418,7 +420,11 @@ export class GameRenderer {
         }
         // Now and then a cat pads along the foot of the houses.
         if (r3 > 0.25 && r3 < 0.32 && clear) {
-          const ct = this.use(`ct${i}${side}`, () => Object.assign(cat(), { userData: { born: t } }));
+          const ct = this.use(`ct${i}${side}`, () => {
+            const o = cat(i * 3 + (side > 0 ? 1 : 0));
+            o.userData.born = t;
+            return o;
+          });
           const walked = t - ct.userData.born;
           const dd = d + 2 - walked * CAT_CYCLE.speed;
           ct.position.set(side * (ROAD_HALF + 2.7) + bend(dd), 0, -dd);
@@ -431,7 +437,7 @@ export class GameRenderer {
           pg.children.forEach((h, k) => animate(h, t * 9 + k * 2.7 + i, false)); // a bob every ~0.9 s
         }
         // Gulls wheel over the port cities.
-        if (c.sea && r3 > 0.92) {
+        if (c.sea && r3 > 0.92 && !this.lite) {
           const gu = this.use(`gu${i}${side}`, () => seagull());
           const a = t * 0.7 + i * 1.3;
           const dd = d + Math.sin(a) * 4;

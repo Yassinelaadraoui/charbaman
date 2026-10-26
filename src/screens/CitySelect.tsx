@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { CITIES } from '../game/cities';
 import { BackButton, Screen } from '../components/ui';
 import { colors } from '../theme';
+import { cityName, cityTagline, fmt, lang, t } from '../i18n';
 
 type Props = { unlocked: number; best: Record<string, number>; onPick: (i: number) => void; onBack: () => void };
 
@@ -17,15 +18,15 @@ export function CitySelect({ unlocked, best, onPick, onBack }: Props) {
     <LinearGradient colors={[colors.orangeDeep, '#7A2E00']} style={{ flex: 1 }}>
       <Screen>
         <BackButton onPress={onBack} />
-        <Text style={styles.title}>Choose your city</Text>
-        <Text style={styles.subtitle}>Clear a city to unlock the next. Every city ends with the giant Charba chase.</Text>
+        <Text style={styles.title}>{t('chooseCity')}</Text>
+        <Text style={styles.subtitle}>{t('chooseCityHint')}</Text>
         <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 30 }}>
           {CITIES.map((c, i) => {
             const locked = i >= unlocked;
             const a = anims[i];
             return (
               <Animated.View key={c.id} style={{ opacity: a, transform: [{ translateX: a.interpolate({ inputRange: [0, 1], outputRange: [80, 0] }) }] }}>
-                <Pressable disabled={locked} onPress={() => onPick(i)}>
+                <Pressable disabled={locked} onPress={() => onPick(i)} accessibilityRole="button" accessibilityLabel={`${cityName(c)}${locked ? ', ' + t('locked') : ''}`}>
                   <LinearGradient colors={[c.skyTop, c.skyBottom]} style={[styles.card, locked && { opacity: 0.55 }]}>
                     <View style={styles.cardSkyline}>
                       {[0.5, 0.8, 0.35, 0.95, 0.6, 0.4, 0.7].map((h, k) => (
@@ -34,12 +35,12 @@ export function CitySelect({ unlocked, best, onPick, onBack }: Props) {
                     </View>
                     <View style={[styles.road, { backgroundColor: c.road[0] }]} />
                     <View style={styles.cardBody}>
-                      <Text style={styles.stage}>STAGE {i + 1}</Text>
-                      <Text style={styles.cityName}>{c.name}</Text>
-                      <Text style={styles.arabic}>{c.arabic}</Text>
-                      <Text style={styles.tagline}>{locked ? '🔒 Clear the previous city' : c.tagline}</Text>
+                      <Text style={styles.stage}>{t('stage', { n: i + 1 })}</Text>
+                      <Text style={styles.cityName}>{cityName(c)}</Text>
+                      <Text style={styles.arabic}>{lang() === 'ar' ? c.name : c.arabic}</Text>
+                      <Text style={styles.tagline}>{locked ? t('locked') : cityTagline(c)}</Text>
                     </View>
-                    {!!best[c.id] && <Text style={styles.best}>Best {best[c.id].toLocaleString()}</Text>}
+                    {!!best[c.id] && <Text style={styles.best}>{t('best', { n: fmt(best[c.id]) })}</Text>}
                   </LinearGradient>
                 </Pressable>
               </Animated.View>

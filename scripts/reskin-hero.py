@@ -1,18 +1,21 @@
-"""Build the game's skinned hero from a rigged body, a running clip and the Charbaman skin of an earlier hero.
+"""Build the game's skinned hero from a rigged body and a running clip, and paint the Charbaman suit on it.
 
 Usage:
-  python3 scripts/reskin-hero.py <body.glb> <run.glb> <skin.ts> src/game/three/heroRigged.ts [--credit "..."]
+  python3 scripts/reskin-hero.py <body.glb> <run.glb> src/game/three/heroRigged.ts [--skin-from old.ts] [--credit "..."]
 Needs: pip install numpy pillow scipy trimesh rtree
 
 body.glb   a rigged character in a T-pose (Biped-style bone names such as "bip L Thigh")
 run.glb    the same rig with a looping run; it is sampled into frames and matched to the body by bone name
-skin.ts    a hero module made earlier (by this script or scripts/convert-rigged-hero.py) whose painted
-           Charbaman suit is transferred onto the new body
 
-Skin transfer: the new skeleton is bent into the old hero's rest pose (limb by limb, so the arms hang the
-same way), both bodies are lined up and scaled to the same height, and every triangle of the new body gets
-its own patch of a fresh atlas filled with the colour of the nearest point on the old hero, looking only at
-the same body part (left arm to left arm and so on) so limbs never borrow the torso's colours.
+Every triangle of the body gets its own patch of a fresh atlas. By default the patches are painted with the
+original Charbaman suit, worked out in 3D on the T-posed body: orange all over, a dark visor across the eyes,
+a white chest badge with an orange bottle on it, silver stripes down the arms and legs, a silver belt, white
+gloves and boots.
+
+--skin-from old.ts instead transfers the suit of an earlier hero module: the new skeleton is bent into the
+old hero's rest pose (limb by limb), both bodies are lined up and scaled to the same height, and each texel
+takes the colour of the nearest point on the old hero, looking only at the same body part (left arm to left
+arm and so on) so limbs never borrow the torso's colours.
 """
 import argparse
 import base64
@@ -29,8 +32,8 @@ from scipy.spatial import cKDTree
 ap = argparse.ArgumentParser()
 ap.add_argument('body')
 ap.add_argument('run')
-ap.add_argument('skin')
 ap.add_argument('dst')
+ap.add_argument('--skin-from', default='', help='transfer the suit of this earlier hero module instead of painting it')
 ap.add_argument('--frames', type=int, default=20, help='frames sampled from one loop of the run')
 ap.add_argument('--atlas', type=int, default=1024)
 ap.add_argument('--credit', default='')
@@ -249,27 +252,6 @@ p0 = skin_positions(bone_worlds(frame0, bparent), ibm, pos, ji, jw)
 print(f'run: {duration:.3f} s, {len(moving)} bones, translation on {[names[moving[j]] for j in moves_t]}, '
       f'first frame size {np.round(p0.max(axis=0) - p0.min(axis=0), 3)}')
 
-# 3. The old hero: its mesh in its rest pose, turned to face the same way as the body.
-src = open(args.skin).read()
-old = json.loads(src[src.index('RIGGED_HERO: RiggedHeroData = ') + 30:src.rindex(';')])
-u16 = lambda s: np.frombuffer(base64.b64decode(s), '<u2')
-opos = u16(old['pos']).reshape(-1, 3) / 65535 * np.array(old['span']) + np.array(old['min'])
-ouv = u16(old['uv']).reshape(-1, 2) / 65535
-oji = np.frombuffer(base64.b64decode(old['joints']), np.uint8).reshape(-1, 4).astype(np.int64)
-ojw = np.frombuffer(base64.b64decode(old['weights']), np.uint8).reshape(-1, 4) / 255
-otri = u16(old['index']).reshape(-1, 3)
-onames = [b['name'] for b in old['bones']]
-oparent = [b['parent'] for b in old['bones']]
-oibm = np.array(old['ibm']).reshape(-1, 4, 4).transpose(0, 2, 1)
-oworld = bone_worlds([trs(b['t'], b['q'], b['s']) for b in old['bones']], oparent)
-oyaw = old.get('yaw', facing_yaw(oworld, onames))
-turn = np.eye(4)
-turn[:3, :3] = quat_mat([0, np.sin((yaw - oyaw) / 2), 0, np.cos((yaw - oyaw) / 2)])
-oworld = [turn @ w for w in oworld]
-orest = skin_positions(oworld, oibm, opos, oji, ojw)
-oimg = np.asarray(Image.open(io.BytesIO(base64.b64decode(old['jpeg']))).convert('RGB'), dtype=np.float64) / 255
-
-
 # Body parts, by bone name (both rigs are Biped-style: "bip L Forearm" or "Bip001-L-Forearm").
 def part(name):
     for side in ('L', 'R'):
@@ -294,61 +276,127 @@ def tri_parts(ji_, jw_, t, nm):
     return np.where(tp[:, 1] == tp[:, 2], tp[:, 1], tp[:, 0])
 
 
-# 4. Bend the body's limbs into the old hero's rest pose, then line the two up.
 def bone(nm, pat):
     return next(k for k, n in enumerate(nm) if re.search(pat, n) and not re.search(r'Nub|end', n))
 
 
-chains = []
-for side in ('L', 'R'):
-    s = rf'[ \-]{side}[ \-]'
-    chains += [(s + 'Clavicle', s + 'UpperArm'), (s + 'UpperArm', s + 'Forearm'), (s + 'Forearm', s + 'Hand'),
-               (s + 'Thigh', s + 'Calf'), (s + 'Calf', s + 'Foot')]
-posed_local = list(rest_local)
-for a_pat, b_pat in chains:
-    wl = bone_worlds(posed_local, bparent)
-    a, b = bone(names, a_pat), bone(names, b_pat)
-    oa, ob = bone(onames, a_pat), bone(onames, b_pat)
-    cur = wl[b][:3, 3] - wl[a][:3, 3]
-    want = oworld[ob][:3, 3] - oworld[oa][:3, 3]
-    cur, want = cur / np.linalg.norm(cur), want / np.linalg.norm(want)
-    axis = np.cross(cur, want)
-    ang = np.arctan2(np.linalg.norm(axis), np.dot(cur, want))
-    if np.linalg.norm(axis) < 1e-8:
-        continue
-    axis /= np.linalg.norm(axis)
-    rot = np.eye(4)
-    rot[:3, :3] = quat_mat(np.r_[axis * np.sin(ang / 2), np.cos(ang / 2)])
-    new_world = wl[a].copy()
-    new_world[:3, :3] = rot[:3, :3] @ wl[a][:3, :3]
-    parent_world = wl[bparent[a]] if bparent[a] >= 0 else np.eye(4)
-    posed_local[a] = np.linalg.inv(parent_world) @ new_world
-bent = skin_positions(bone_worlds(posed_local, bparent), ibm, pos, ji, jw)
-k = (bent[:, 1].max() - bent[:, 1].min()) / (orest[:, 1].max() - orest[:, 1].min())
-oc = oworld[bone(onames, r'Pelvis')][:3, 3]
-nc = bone_worlds(posed_local, bparent)[bone(names, r'Pelvis')][:3, 3]
-orest = (orest - [oc[0], orest[:, 1].min(), oc[2]]) * k + [nc[0], bent[:, 1].min(), nc[2]]
-for pat in (r'[ \-]L[ \-]Hand', r'[ \-]R[ \-]Hand'):
-    i = bone(names, pat)
-    h = bone_worlds(posed_local, bparent)[i][:3, 3]
-    oh = (oworld[bone(onames, pat)][:3, 3] - [oc[0], 0, oc[2]]) * k + [nc[0], 0, nc[2]]
-    print(f'{pat[-4:]} at {np.round(h, 2)}, old hero\'s at {np.round(oh, 2)}')
+if args.skin_from:
+    # 3. The old hero: its mesh in its rest pose, turned to face the same way as the body.
+    src = open(args.skin_from).read()
+    old = json.loads(src[src.index('RIGGED_HERO: RiggedHeroData = ') + 30:src.rindex(';')])
+    u16 = lambda s: np.frombuffer(base64.b64decode(s), '<u2')
+    opos = u16(old['pos']).reshape(-1, 3) / 65535 * np.array(old['span']) + np.array(old['min'])
+    ouv = u16(old['uv']).reshape(-1, 2) / 65535
+    oji = np.frombuffer(base64.b64decode(old['joints']), np.uint8).reshape(-1, 4).astype(np.int64)
+    ojw = np.frombuffer(base64.b64decode(old['weights']), np.uint8).reshape(-1, 4) / 255
+    otri = u16(old['index']).reshape(-1, 3)
+    onames = [b['name'] for b in old['bones']]
+    oparent = [b['parent'] for b in old['bones']]
+    oibm = np.array(old['ibm']).reshape(-1, 4, 4).transpose(0, 2, 1)
+    oworld = bone_worlds([trs(b['t'], b['q'], b['s']) for b in old['bones']], oparent)
+    oyaw = old.get('yaw', facing_yaw(oworld, onames))
+    turn = np.eye(4)
+    turn[:3, :3] = quat_mat([0, np.sin((yaw - oyaw) / 2), 0, np.cos((yaw - oyaw) / 2)])
+    oworld = [turn @ w for w in oworld]
+    orest = skin_positions(oworld, oibm, opos, oji, ojw)
+    oimg = np.asarray(Image.open(io.BytesIO(base64.b64decode(old['jpeg']))).convert('RGB'), dtype=np.float64) / 255
 
-# 5. Colour samples on the old hero, labelled by body part.
-omesh = trimesh.Trimesh(orest, otri, process=False)
-spts, sfi = trimesh.sample.sample_surface(omesh, 400_000, seed=1)
-bary = trimesh.triangles.points_to_barycentric(omesh.triangles[sfi], spts)
-suv = (ouv[otri[sfi]] * bary[:, :, None]).sum(axis=1)
-H, W = oimg.shape[:2]
-scol = oimg[np.clip((suv[:, 1] * H).astype(int), 0, H - 1), np.clip((suv[:, 0] * W).astype(int), 0, W - 1)]
-snrm = omesh.face_normals[sfi]
-spart = tri_parts(oji, ojw, otri, onames)[sfi]
-trees = {p: (cKDTree(spts[spart == p]), np.flatnonzero(spart == p)) for p in np.unique(spart)}
+
+    # 4. Bend the body's limbs into the old hero's rest pose, then line the two up.
+    chains = []
+    for side in ('L', 'R'):
+        s = rf'[ \-]{side}[ \-]'
+        chains += [(s + 'Clavicle', s + 'UpperArm'), (s + 'UpperArm', s + 'Forearm'), (s + 'Forearm', s + 'Hand'),
+                   (s + 'Thigh', s + 'Calf'), (s + 'Calf', s + 'Foot')]
+    posed_local = list(rest_local)
+    for a_pat, b_pat in chains:
+        wl = bone_worlds(posed_local, bparent)
+        a, b = bone(names, a_pat), bone(names, b_pat)
+        oa, ob = bone(onames, a_pat), bone(onames, b_pat)
+        cur = wl[b][:3, 3] - wl[a][:3, 3]
+        want = oworld[ob][:3, 3] - oworld[oa][:3, 3]
+        cur, want = cur / np.linalg.norm(cur), want / np.linalg.norm(want)
+        axis = np.cross(cur, want)
+        ang = np.arctan2(np.linalg.norm(axis), np.dot(cur, want))
+        if np.linalg.norm(axis) < 1e-8:
+            continue
+        axis /= np.linalg.norm(axis)
+        rot = np.eye(4)
+        rot[:3, :3] = quat_mat(np.r_[axis * np.sin(ang / 2), np.cos(ang / 2)])
+        new_world = wl[a].copy()
+        new_world[:3, :3] = rot[:3, :3] @ wl[a][:3, :3]
+        parent_world = wl[bparent[a]] if bparent[a] >= 0 else np.eye(4)
+        posed_local[a] = np.linalg.inv(parent_world) @ new_world
+    bent = skin_positions(bone_worlds(posed_local, bparent), ibm, pos, ji, jw)
+    k = (bent[:, 1].max() - bent[:, 1].min()) / (orest[:, 1].max() - orest[:, 1].min())
+    oc = oworld[bone(onames, r'Pelvis')][:3, 3]
+    nc = bone_worlds(posed_local, bparent)[bone(names, r'Pelvis')][:3, 3]
+    orest = (orest - [oc[0], orest[:, 1].min(), oc[2]]) * k + [nc[0], bent[:, 1].min(), nc[2]]
+    for pat in (r'[ \-]L[ \-]Hand', r'[ \-]R[ \-]Hand'):
+        i = bone(names, pat)
+        h = bone_worlds(posed_local, bparent)[i][:3, 3]
+        oh = (oworld[bone(onames, pat)][:3, 3] - [oc[0], 0, oc[2]]) * k + [nc[0], 0, nc[2]]
+        print(f'{pat[-4:]} at {np.round(h, 2)}, old hero\'s at {np.round(oh, 2)}')
+
+    # 5. Colour samples on the old hero, labelled by body part.
+    omesh = trimesh.Trimesh(orest, otri, process=False)
+    spts, sfi = trimesh.sample.sample_surface(omesh, 400_000, seed=1)
+    bary = trimesh.triangles.points_to_barycentric(omesh.triangles[sfi], spts)
+    suv = (ouv[otri[sfi]] * bary[:, :, None]).sum(axis=1)
+    H, W = oimg.shape[:2]
+    scol = oimg[np.clip((suv[:, 1] * H).astype(int), 0, H - 1), np.clip((suv[:, 0] * W).astype(int), 0, W - 1)]
+    snrm = omesh.face_normals[sfi]
+    spart = tri_parts(oji, ojw, otri, onames)[sfi]
+    trees = {p: (cKDTree(spts[spart == p]), np.flatnonzero(spart == p)) for p in np.unique(spart)}
 npart = tri_parts(ji, jw, tri, names)
 print('parts', {p: int((npart == p).sum()) for p in np.unique(npart)})
 
+
+# The original suit, painted from 3D position and normal on the T-posed body (facing +z, metres).
+anchor = lambda pat: rest_world[bone(names, pat)][:3, 3]
+top = rest_pos[:, 1].max()
+neck_y = anchor(r'Neck')[1]
+hip_y = anchor(r'Pelvis')[1]
+chest_y = neck_y - 0.17
+eye_y = top - 0.115
+limb_z = {p: float(np.median(rest_pos[np.unique(tri[npart == p]), 2])) for p in np.unique(npart)}
+ORANGE, SILVER, WHITE, VISOR = np.array([1.0, 0.45, 0.02]), np.array([0.84, 0.86, 0.9]), np.array([0.97, 0.96, 0.93]), np.array([0.07, 0.09, 0.16])
+
+
+def paint(P, nrm, prt):
+    out = np.tile(ORANGE, (len(P), 1))
+    x, y = P[:, 0], P[:, 1]
+    front = nrm[2] > 0.3
+    if prt == 'head':
+        visor = front & (np.abs(y - eye_y) < 0.03)
+        out[visor] = VISOR
+        out[front & (np.abs(y - eye_y - 0.026) < 0.005)] = SILVER  # a glint along the visor's top edge
+    elif prt == 'torso':
+        out[np.abs(y - hip_y - 0.05) < 0.028] = SILVER
+        if front:
+            r = np.hypot(x, y - chest_y)
+            out[r < 0.085] = SILVER
+            out[r < 0.073] = WHITE
+            body = (np.abs(x) < 0.024) & (y > chest_y - 0.055) & (y < chest_y + 0.022)
+            neck = (np.abs(x) < 0.011) & (y >= chest_y + 0.022) & (y < chest_y + 0.052)
+            out[body | neck] = ORANGE
+            out[(np.abs(x) < 0.024) & (np.abs(y - chest_y + 0.01) < 0.009)] = WHITE  # label band
+    elif prt.startswith('arm'):
+        if nrm[1] > 0.3:  # a band along the top of the arm in the T-pose, the outside when running
+            out[np.abs(P[:, 2] - limb_z[prt]) < 0.025] = SILVER
+    elif prt.startswith('hand'):
+        out[:] = WHITE
+    elif prt.startswith('foot'):
+        out[:] = WHITE
+    elif prt.startswith('leg'):
+        out[y < 0.2] = WHITE  # boots
+        if nrm[0] * np.sign(P[:, 0].mean()) > 0.3:  # a band down the outer side of the leg
+            out[(y >= 0.2) & (np.abs(P[:, 2] - limb_z[prt]) < 0.025)] = SILVER
+    return out
+
+
 # 6. One atlas patch per triangle of the body (pairs of similar size share a square), shelf-packed.
-T = bent[tri]
+T = (bent if args.skin_from else rest_pos)[tri]
 n = len(T)
 fn = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
 farea = np.linalg.norm(fn, axis=1) / 2
@@ -397,6 +445,9 @@ for (cx, cy, sd), pr in zip(cells, pairs):
             aa, bb = 1 - a[sel], 1 - b[sel]
             uvs[t] = [(cx + sd - 0.5, cy + sd - 0.5), (cx + 0.5, cy + sd - 0.5), (cx + sd - 0.5, cy + 0.5)]
         P = T[t, 0] + aa[:, None] * (T[t, 1] - T[t, 0]) + bb[:, None] * (T[t, 2] - T[t, 0])
+        if not args.skin_from:
+            atlas[cy + jj.ravel()[sel], cx + ii.ravel()[sel]] = paint(P, fn[t], npart[t])
+            continue
         tree, ids = trees.get(npart[t], trees['torso'])
         _, nn = tree.query(P, k=8)
         cand = ids[nn]

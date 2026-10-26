@@ -4,11 +4,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { CharbaSprite } from '../components/CharbaSprite';
 import { Bottle } from '../game/sprites';
 import { Button } from '../components/ui';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme';
+import { t } from '../i18n';
 
-type Props = { onStory: () => void; onEndless: () => void; onLeaderboard: () => void; onHowTo: () => void; best: number };
+type Props = { onStory: () => void; onEndless: () => void; onLeaderboard: () => void; onHowTo: () => void; onSettings: () => void; best: number };
 
-export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, best }: Props) {
+export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, onSettings, best }: Props) {
+  const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState(0);
   const bounce = useRef(new Animated.Value(0)).current;
   const intro = useRef(new Animated.Value(0)).current;
@@ -40,7 +43,7 @@ export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, best }
   };
 
   return (
-    <LinearGradient colors={['#FF9E2C', colors.orange, colors.orangeDeep]} style={styles.root}>
+    <LinearGradient colors={['#FF9E2C', colors.orange, colors.orangeDeep]} style={[styles.root, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]}>
       {/* Sun rays */}
       <View style={styles.rays} pointerEvents="none">
         {Array.from({ length: 12 }).map((_, i) => (
@@ -51,7 +54,7 @@ export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, best }
       <Animated.View style={[styles.logoWrap, logoStyle]}>
         <Text style={styles.logoShadow}>CHARBAMAN</Text>
         <Text style={styles.logo}>CHARBAMAN</Text>
-        <Text style={styles.sub}>شربة مان · The Moroccan street-drink hero</Text>
+        <Text style={styles.sub}>شربة مان · {t('tagline')}</Text>
       </Animated.View>
 
       <View style={styles.heroStage}>
@@ -65,20 +68,21 @@ export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, best }
       </View>
 
       <View style={styles.menu}>
-        <Button label="▶  Play the Cities" variant="light" onPress={onStory} />
-        <Button label="∞  Endless Run" onPress={onEndless} />
+        <Button label={t('playCities')} variant="light" onPress={onStory} />
+        <Button label={t('endless')} onPress={onEndless} />
         <View style={styles.row}>
-          <Button label="🏆 Scores" variant="ghost" onPress={onLeaderboard} style={styles.half} />
-          <Button label="? How to" variant="ghost" onPress={onHowTo} style={styles.half} />
+          <Button label={t('scores')} variant="ghost" onPress={onLeaderboard} style={styles.third} />
+          <Button label={t('howTo')} variant="ghost" onPress={onHowTo} style={styles.third} />
         </View>
-        {best > 0 && <Text style={styles.best}>Endless best: {best.toLocaleString()}</Text>}
+        <Button label={t('settings')} variant="ghost" onPress={onSettings} style={styles.wide} />
+        {best > 0 && <Text style={styles.best}>{t('endlessBest', { n: best })}</Text>}
       </View>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingTop: 70, paddingBottom: 36, paddingHorizontal: 16, overflow: 'hidden' },
+  root: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, overflow: 'hidden' },
   rays: { position: 'absolute', top: '38%', left: '50%', width: 0, height: 0 },
   ray: { position: 'absolute', left: -30, top: -600, width: 60, height: 1200, backgroundColor: 'rgba(255,255,255,0.07)' },
   logoWrap: { alignItems: 'center' },
@@ -90,6 +94,7 @@ const styles = StyleSheet.create({
   floatBottle: { position: 'absolute', top: 0 },
   menu: { alignItems: 'center', gap: 12, width: '100%' },
   row: { flexDirection: 'row', gap: 10 },
-  half: { minWidth: 115 },
+  third: { minWidth: 115, paddingHorizontal: 12 },
+  wide: { minWidth: 240, paddingVertical: 10 },
   best: { color: colors.cream, fontWeight: '800', marginTop: 4 },
 });

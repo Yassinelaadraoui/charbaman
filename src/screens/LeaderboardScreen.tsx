@@ -6,12 +6,13 @@ import { BackButton, Screen } from '../components/ui';
 import { colors } from '../theme';
 import { fetchTop, firebaseEnabled } from '../services/firebase';
 import type { ScoreEntry } from '../services/storage';
+import { cityName, fmt, t } from '../i18n';
 
 type Props = { local: Record<string, ScoreEntry[]>; onBack: () => void; initial?: string };
 
-const TABS = [{ id: 'endless', name: 'Endless' }, ...CITIES.map((c) => ({ id: c.id, name: c.name }))];
 
 export function LeaderboardScreen({ local, onBack, initial = 'endless' }: Props) {
+  const TABS = [{ id: 'endless', name: t('endlessTab') }, ...CITIES.map((c) => ({ id: c.id, name: cityName(c) }))];
   const [tab, setTab] = useState(initial);
   const [rows, setRows] = useState<ScoreEntry[] | null>(null);
   const [online, setOnline] = useState(firebaseEnabled);
@@ -33,13 +34,13 @@ export function LeaderboardScreen({ local, onBack, initial = 'endless' }: Props)
     <LinearGradient colors={[colors.orangeDeep, '#5A2200']} style={{ flex: 1 }}>
       <Screen>
         <BackButton onPress={onBack} />
-        <Text style={styles.title}>Leaderboard</Text>
-        <Text style={styles.sub}>{online ? 'Worldwide scores' : 'Scores on this phone'}</Text>
+        <Text style={styles.title}>{t('leaderboard')}</Text>
+        <Text style={styles.sub}>{online ? t('worldwide') : t('onPhone')}</Text>
         <View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 12 }}>
-            {TABS.map((t) => (
-              <Pressable key={t.id} onPress={() => setTab(t.id)} style={[styles.tab, tab === t.id && styles.tabOn]}>
-                <Text style={[styles.tabText, tab === t.id && { color: colors.orangeDeep }]}>{t.name}</Text>
+            {TABS.map((tb) => (
+              <Pressable key={tb.id} onPress={() => setTab(tb.id)} style={[styles.tab, tab === tb.id && styles.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: tab === tb.id }}>
+                <Text style={[styles.tabText, tab === tb.id && { color: colors.orangeDeep }]}>{tb.name}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -47,7 +48,7 @@ export function LeaderboardScreen({ local, onBack, initial = 'endless' }: Props)
         {rows === null ? (
           <ActivityIndicator color={colors.white} style={{ marginTop: 40 }} />
         ) : rows.length === 0 ? (
-          <Text style={styles.empty}>No scores yet. Be the first!</Text>
+          <Text style={styles.empty}>{t('noScores')}</Text>
         ) : (
           <FlatList
             data={rows}
@@ -58,7 +59,7 @@ export function LeaderboardScreen({ local, onBack, initial = 'endless' }: Props)
                 <Text style={styles.rank}>{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}</Text>
                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                 <Text style={styles.cans}>🍊 {item.cans}</Text>
-                <Text style={styles.score}>{item.score.toLocaleString()}</Text>
+                <Text style={styles.score}>{fmt(item.score)}</Text>
               </View>
             )}
           />

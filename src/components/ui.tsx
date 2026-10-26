@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
 import { Animated, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { initSounds, play } from '../services/sound';
+import { t } from '../i18n';
 import { colors } from '../theme';
 
 type BtnProps = { label: string; onPress: () => void; variant?: 'primary' | 'light' | 'ghost'; style?: StyleProp<ViewStyle>; disabled?: boolean };
@@ -16,7 +18,12 @@ export function Button({ label, onPress, variant = 'primary', style, disabled }:
         play('click');
         onPress();
       }}
-      onPressIn={() => to(0.94)} onPressOut={() => to(1)} disabled={disabled}>
+      onPressIn={() => to(0.94)}
+      onPressOut={() => to(1)}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
       <Animated.View style={[styles.btn, styles[variant], disabled && { opacity: 0.5 }, style, { transform: [{ scale }] }]}>
         <Text style={[styles.label, variant === 'light' && { color: colors.orangeDeep }]}>{label}</Text>
       </Animated.View>
@@ -24,20 +31,22 @@ export function Button({ label, onPress, variant = 'primary', style, disabled }:
   );
 }
 
+// A full screen with room for the notch and the home bar.
 export function Screen({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.screen, style]}>{children}</View>;
+  const insets = useSafeAreaInsets();
+  return <View style={[styles.screen, { paddingTop: Math.max(insets.top + 12, 32), paddingBottom: insets.bottom + 20 }, style]}>{children}</View>;
 }
 
 export function BackButton({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={12} style={styles.back}>
-      <Text style={styles.backText}>‹ Back</Text>
+    <Pressable onPress={onPress} hitSlop={12} style={styles.back} accessibilityRole="button" accessibilityLabel={t('back')}>
+      <Text style={styles.backText}>{t('back')}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 24 },
+  screen: { flex: 1, paddingHorizontal: 16 },
   btn: { paddingVertical: 15, paddingHorizontal: 24, borderRadius: 18, alignItems: 'center', minWidth: 240 },
   primary: { backgroundColor: colors.orange, borderBottomWidth: 5, borderBottomColor: colors.orangeDeep },
   light: { backgroundColor: colors.cream, borderBottomWidth: 5, borderBottomColor: '#F2D2B0' },

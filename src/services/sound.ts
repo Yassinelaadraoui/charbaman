@@ -64,3 +64,7 @@ export function play(key: Sound) {
 
 export const setMuted = (m: boolean) => (muted = m);
 export const isMuted = () => muted;
+
+let haptics = true;
+export const setHaptics = (on: boolean) => (haptics = on);
+export const hapticsOn = () => haptics;

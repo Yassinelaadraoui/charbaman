@@ -1,30 +1,35 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, AppState, BackHandler, PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CITIES } from '../game/cities';
 import { GameEvent, GameMode, GameState, Input, ROAD_HALF, city, createGame, progress, start, step } from '../game/engine';
 import { GLView } from 'expo-gl';
 import { GameRenderer } from '../game/three/scene';
 import { Bottle } from '../game/sprites';
 import { colors } from '../theme';
-import { initSounds, play } from '../services/sound';
+import { hapticsOn, initSounds, play } from '../services/sound';
+import { setMusicTempo } from '../services/music';
+import { cityName, fmt, t } from '../i18n';
 
 export type RunResult = { mode: GameMode; cityIndex: number; cleared: boolean; score: number; cans: number; distance: number };
 
-type Props = { mode: GameMode; cityIndex: number; onExit: () => void; onFinish: (r: RunResult) => void };
+type Props = { mode: GameMode; cityIndex: number; lite?: boolean; onExit: () => void; onFinish: (r: RunResult) => void };
 
 type Popup = { id: number; text: string; color: string; big?: boolean; born: number };
 
 const SWIPE = 32;
 
 const buzz = (kind: 'light' | 'heavy' | 'success') => {
-  if (Platform.OS === 'web') return;
+  if (Platform.OS === 'web' || !hapticsOn()) return;
   if (kind === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   else Haptics.impactAsync(kind === 'heavy' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 };
 
-export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
+export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: Props) {
   const { width: W, height: H } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const gfx = useRef<GameRenderer | null>(null);
   const game = useRef<GameState>(createGame(mode, cityIndex));
   const input = useRef<Input>({ steer: 0, jump: false, slide: false });
@@ -36,7 +41,7 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
   const popupId = useRef(0);
   const finished = useRef(false);
   const banner = useRef(new Animated.Value(0)).current;
-  const [bannerText, setBannerText] = useState(`${CITIES[cityIndex].name}`);
+  const [bannerText, setBannerText] = useState(cityName(CITIES[cityIndex]));
 
   pausedRef.current = paused;
   // Exposed on web only, so automated playtests can jump around a stage.
@@ -74,41 +79,41 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
       case 'hit':
         play('hit');
         gfx.current?.burst('hit', s.x, 0.9, s.z + 0.8);
-        pop('OUCH!', colors.danger, true);
+        pop(t('pop.ouch'), colors.danger, true);
         buzz('heavy');
         break;
       case 'life':
         play('life');
-        pop('1UP!', colors.mint, true);
+        pop(t('pop.life'), colors.mint, true);
         buzz('success');
         break;
       case 'lifeLost':
-        showBanner(s.phase === 'chase' ? 'CRUSHED! TRY AGAIN' : 'BACK TO CHECKPOINT');
+        showBanner(s.phase === 'chase' ? t('banner.crushed') : t('banner.checkpoint'));
         buzz('heavy');
         break;
       case 'checkpoint':
         play('checkpoint');
-        pop('CHECKPOINT!', colors.white, true);
+        pop(t('pop.checkpoint'), colors.white, true);
         buzz('success');
         break;
       case 'skate':
         play('skate');
         gfx.current?.burst('skate', s.x, 0.4, s.z);
-        pop('SKATEBOARD!', colors.gold, true);
+        pop(t('pop.skate'), colors.gold, true);
         buzz('success');
         break;
       case 'tajine':
         play('tajine');
-        pop('TAJINE HEAD! CONTROLS FLIPPED', colors.danger, true);
+        pop(t('pop.tajine'), colors.danger, true);
         buzz('heavy');
         break;
       case 'chase':
         play('chase');
-        showBanner('RUN! THE GIANT CHARBA!');
+        showBanner(t('banner.chase'));
         buzz('heavy');
         break;
       case 'city':
-        showBanner(city(s).name.toUpperCase());
+        showBanner(cityName(city(s)).toUpperCase());
         break;
       case 'clear':
       case 'over':
@@ -119,7 +124,7 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
   };
 
   useEffect(() => {
-    showBanner(mode === 'endless' ? 'ENDLESS RUN' : CITIES[cityIndex].name.toUpperCase());
+    showBanner(mode === 'endless' ? t('banner.endless') : cityName(CITIES[cityIndex]).toUpperCase());
     initSounds();
     let raf = 0;
     let last = 0;
@@ -152,21 +157,51 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
         popups.current = popups.current.filter((p) => s.time - p.born < 0.9);
         if ((s.phase === 'clear' || s.phase === 'over') && !finished.current) {
           finished.current = true;
-          if (s.phase === 'clear') showBanner('STAGE CLEAR!');
+          if (s.phase === 'clear') showBanner(t('banner.clear'));
           setTimeout(
             () => onFinish({ mode, cityIndex, cleared: s.phase === 'clear', score: s.score, cans: s.cans, distance: Math.floor(s.z) }),
             1500,
           );
         }
       }
+      setMusicTempo(s.phase === 'chase' ? 1.12 : 1);
       gfx.current?.render(s);
       render();
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      setMusicTempo(1);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // No screen dimming mid-run (phones only: browsers may refuse the wake lock, and that is fine).
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    activateKeepAwakeAsync('run').catch(() => {});
+    return () => {
+      deactivateKeepAwake('run').catch(() => {});
+    };
+  }, []);
+
+  // Pause when the phone takes the app away (a call, the home button) and on Android's back button.
+  useEffect(() => {
+    const running = () => game.current.phase === 'run' || game.current.phase === 'chase';
+    const app = AppState.addEventListener('change', (st) => {
+      if (st !== 'active' && running()) setPaused(true);
+    });
+    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (running()) setPaused((p) => !p);
+      else onExit();
+      return true;
+    });
+    return () => {
+      app.remove();
+      back.remove();
+    };
+  }, [onExit]);
 
   // Keyboard controls for web testing.
   useEffect(() => {
@@ -240,16 +275,17 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
         style={styles.gl}
         onContextCreate={(gl) => {
           gfx.current = new GameRenderer(gl as unknown as WebGLRenderingContext, W, H, () => gl.endFrameEXP());
+          gfx.current.lite = lite;
           if (Platform.OS === 'web') (globalThis as { __charbaGfx?: GameRenderer }).__charbaGfx = gfx.current;
         }}
       />
 
       {/* HUD */}
-      <View style={styles.hud} pointerEvents="box-none">
+      <View style={[styles.hud, { paddingTop: Math.max(insets.top + 8, 24) }]} pointerEvents="box-none">
         <View style={styles.hudRow} pointerEvents="box-none">
           <View style={styles.pill}>
             <Bottle m={34} />
-            <Text style={styles.pillText}>{s.cans}</Text>
+            <Text style={styles.pillText}>{fmt(s.cans)}</Text>
           </View>
           <View style={[styles.pill, { gap: 4 }]}>
             {[0, 1, 2].map((i) => (
@@ -257,14 +293,14 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
             ))}
             <Text style={[styles.pillText, { marginLeft: 6 }]}>×{s.lives}</Text>
           </View>
-          <Pressable onPress={() => setPaused(true)} style={styles.pause} hitSlop={12}>
+          <Pressable onPress={() => setPaused(true)} style={styles.pause} hitSlop={12} accessibilityRole="button" accessibilityLabel={t('paused')}>
             <View style={styles.pauseBar} />
             <View style={styles.pauseBar} />
           </Pressable>
         </View>
         <View style={styles.scoreRow}>
-          <Text style={styles.score}>{s.score.toLocaleString()}</Text>
-          <Text style={styles.cityName}>{c.name}</Text>
+          <Text style={styles.score}>{fmt(s.score)}</Text>
+          <Text style={styles.cityName}>{cityName(c)}</Text>
         </View>
         {mode === 'stage' && (
           <View style={styles.progress}>
@@ -272,8 +308,8 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
             <View style={[styles.chaseMark, { left: `${(CITIES[cityIndex].length / (CITIES[cityIndex].length + CITIES[cityIndex].chaseLength)) * 100}%` }]} />
           </View>
         )}
-        {s.tajine > 0 && <Text style={styles.status}>🔄 Controls flipped {Math.ceil(s.tajine)}s</Text>}
-        {s.skate > 0 && <Text style={styles.status}>🛹 Skateboard {Math.ceil(s.skate)}s</Text>}
+        {s.tajine > 0 && <Text style={styles.status}>{t('status.tajine', { n: Math.ceil(s.tajine) })}</Text>}
+        {s.skate > 0 && <Text style={styles.status}>{t('status.skate', { n: Math.ceil(s.skate) })}</Text>}
       </View>
 
       {popups.current.map((p) => {
@@ -298,20 +334,20 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
       </Animated.View>
 
       {s.phase === 'ready' && (
-        <View style={styles.ready} pointerEvents="none">
-          <Text style={styles.readyTitle}>Tap to run!</Text>
-          <Text style={styles.readyHint}>Drag ← → to steer · Swipe ↑ jump · Swipe ↓ slide</Text>
+        <View style={[styles.ready, { bottom: insets.bottom + 40 }]} pointerEvents="none">
+          <Text style={styles.readyTitle}>{t('tapToRun')}</Text>
+          <Text style={styles.readyHint}>{t('controlsHint')}</Text>
         </View>
       )}
 
       {paused && (
         <View style={styles.overlay}>
-          <Text style={styles.overlayTitle}>Paused</Text>
-          <Pressable style={styles.btn} onPress={() => setPaused(false)}>
-            <Text style={styles.btnText}>Resume</Text>
+          <Text style={styles.overlayTitle}>{t('paused')}</Text>
+          <Pressable style={styles.btn} onPress={() => setPaused(false)} accessibilityRole="button">
+            <Text style={styles.btnText}>{t('resume')}</Text>
           </Pressable>
-          <Pressable style={[styles.btn, styles.btnGhost]} onPress={onExit}>
-            <Text style={[styles.btnText, { color: colors.white }]}>Quit to menu</Text>
+          <Pressable style={[styles.btn, styles.btnGhost]} onPress={onExit} accessibilityRole="button">
+            <Text style={[styles.btnText, { color: colors.white }]}>{t('quit')}</Text>
           </Pressable>
         </View>
       )}
@@ -324,7 +360,7 @@ const shadow = { textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width:
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ink, overflow: 'hidden' },
   gl: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  hud: { position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 50, paddingHorizontal: 16 },
+  hud: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16 },
   hudRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   pill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(43,19,0,0.55)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
   pillText: { color: colors.white, fontWeight: '900', fontSize: 18 },
@@ -342,7 +378,7 @@ const styles = StyleSheet.create({
   popupBig: { fontSize: 30 },
   banner: { position: 'absolute', top: '22%', alignSelf: 'center', backgroundColor: colors.orange, paddingHorizontal: 22, paddingVertical: 10, borderRadius: 16, borderWidth: 3, borderColor: colors.gold },
   bannerText: { color: colors.white, fontWeight: '900', fontSize: 24, letterSpacing: 1 },
-  ready: { position: 'absolute', bottom: '6%', left: 16, right: 16, alignItems: 'center' },
+  ready: { position: 'absolute', left: 16, right: 16, alignItems: 'center' },
   readyTitle: { color: colors.white, fontWeight: '900', fontSize: 34, ...shadow },
   readyHint: { color: colors.white, fontWeight: '700', fontSize: 14, marginTop: 6, textAlign: 'center', ...shadow },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(43,19,0,0.75)', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 16 },

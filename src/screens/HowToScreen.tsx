@@ -3,16 +3,17 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BackButton, Screen } from '../components/ui';
 import { colors } from '../theme';
+import { Key, t } from '../i18n';
 
-const TIPS: [string, string, string][] = [
-  ['👆', 'Drag left / right', 'Steer freely anywhere on the street, no lanes.'],
-  ['⬆️', 'Swipe up or tap', 'Jump over crates of oranges.'],
-  ['⬇️', 'Swipe down', 'Slide under market awnings. In the air it slams you down.'],
-  ['🍊', 'Charba bottles', 'Grab them for points. Every 25 bottles is an extra life.'],
-  ['💥', 'Three hits', 'Taxis, scooters and donkey carts knock off health. Lose all 3 and you restart from the last checkpoint.'],
-  ['🛹', 'Skateboard', 'Speed boost for a few seconds.'],
-  ['🏺', 'Tajine', 'Lands on your head and flips your controls. Avoid it!'],
-  ['🟠', 'The giant Charba', 'The end of every city is a chase. Get hit and it rolls closer. If it catches you, you lose a life.'],
+const TIPS: [string, string][] = [
+  ['👆', 'steer'],
+  ['⬆️', 'jump'],
+  ['⬇️', 'slide'],
+  ['🍊', 'bottles'],
+  ['💥', 'hits'],
+  ['🛹', 'skate'],
+  ['🏺', 'tajine'],
+  ['🟠', 'chase'],
 ];
 
 export function HowToScreen({ onBack }: { onBack: () => void }) {
@@ -20,26 +21,17 @@ export function HowToScreen({ onBack }: { onBack: () => void }) {
     <LinearGradient colors={[colors.orange, colors.orangeDeep]} style={{ flex: 1 }}>
       <Screen>
         <BackButton onPress={onBack} />
-        <Text style={styles.title}>How to play</Text>
+        <Text style={styles.title}>{t('howToTitle')}</Text>
         <ScrollView contentContainerStyle={{ gap: 10, paddingVertical: 14 }}>
-          {TIPS.map(([icon, head, body]) => (
-            <View key={head} style={styles.card}>
+          {TIPS.map(([icon, id]) => (
+            <View key={id} style={styles.card}>
               <Text style={styles.icon}>{icon}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.head}>{head}</Text>
-                <Text style={styles.body}>{body}</Text>
+                <Text style={styles.head}>{t(`tip.${id}.head` as Key)}</Text>
+                <Text style={styles.body}>{t(`tip.${id}.body` as Key)}</Text>
               </View>
             </View>
           ))}
-          <Text style={styles.credits}>
-            Credits (3D models, all CC-BY-4.0, from Sketchfab): petit taxi based on "Hong Kong Taxi" by Goedude; Hassan II
-            Mosque, Derby House, Popular House, Old Neighborhood House and Morocco House by abdlilah ben; Hassan Tower by
-            Ysn.Aitaddi; City Gate, Mixed Facade and Moroccan Boy by Mrigua Mohamed; city walls from "Moroccan culture" by
-            medbunz; Dacia Lodgy by abdelghani.0; police car by FF 3DMODEL; palm by KrazzyElf; maple by atrodler; lamppost by Haggy the model ripper; tea table by
-            A9908244; apple box by Pixxellab; juice bottle by Spacesea; 200 dirham note by lordmehemedz (Sketchfab Standard); tagine by
-            laabidate; majmar by Mrigua Mohamed; fruit stall by Isa_van_den_Bosch; donkey by WildMesh 3D; chicken by MAXDESIGN-3D; bus stop by evtushenko; danger sign by AbouAli; old man by anandmohan662; pigeon by LostBoyz2078; seagull by kenchoo; cat by LostBoyz2078; spice market by zeroual.elmehdi; sounds and particles by Kenney (CC0); hero by Denys Almaral, suit based on "Spiderman Multiverse" by CAPTAAINR.
-            Models were simplified and recoloured for the game.
-          </Text>
         </ScrollView>
       </Screen>
     </LinearGradient>
@@ -52,5 +44,4 @@ const styles = StyleSheet.create({
   icon: { fontSize: 28 },
   head: { color: colors.white, fontWeight: '900', fontSize: 17 },
   body: { color: colors.cream, fontWeight: '600', fontSize: 14, marginTop: 2 },
-  credits: { color: colors.cream, fontSize: 11, marginTop: 10, opacity: 0.8 },
 });
