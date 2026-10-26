@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import type { City } from '../cities';
-import { GameState, ROAD_HALF, city as cityOf } from '../engine';
+import { GameState, ROAD_HALF, chaseStart, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens } from './props';
+import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, showFrame } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -346,6 +346,11 @@ export class GameRenderer {
       for (const side of [-1, 1]) {
         const r = hash(i * 2 + (side > 0 ? 1 : 0));
         const r2 = hash(i * 7 + (side > 0 ? 3 : 5));
+        const r3 = hash(i * 13 + (side > 0 ? 11 : 17));
+        const slotZ = i * DECOR_STEP;
+        // Skull-and-crossbones signs line the last stretch before the giant Charba comes rolling.
+        const warn = s.mode === 'stage' && slotZ > chaseStart(s) - 70 && slotZ < chaseStart(s) - 4 && ((i + (side > 0 ? 1 : 0)) & 1) === 0;
+        const shelter = !warn && r3 < 0.07;
         const variant = Math.floor(r * 6);
         if (hasModelHouses(c) && r2 < 0.6) {
           // Facade on the pavement line, the rest of the house behind it.
@@ -360,7 +365,7 @@ export class GameRenderer {
           h.position.set(side * (ROAD_HALF + 5.4) + bend(d), 0, -d);
         }
         // Now and then a kid cheers you on from the pavement.
-        if (r2 > 0.78) {
+        if (r2 > 0.78 && !shelter) {
           const b = this.use(`b${i}${side}`, () => spectator(side));
           b.position.set(side * (ROAD_HALF + 0.95) + bend(d - 3), 0, -(d - 3));
           b.getObjectByName('bob')!.position.y = Math.abs(Math.sin(t * 7 + i * 1.7)) * 0.25;
@@ -374,15 +379,46 @@ export class GameRenderer {
         if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
         if (kind === 'lamp') p.rotation.y = side > 0 ? 0 : Math.PI; // arm over the road
         // Chickens wander the pavement here and there.
-        if (r2 > 0.62 && r2 < 0.72) {
+        if (r2 > 0.62 && r2 < 0.72 && !shelter) {
           const ch = this.use(`c${i}${side}`, () => chickens(i));
           ch.position.set(side * (ROAD_HALF + 1.9) + bend(d - 1.5), 0, -(d - 1.5));
           ch.children.forEach((h, k) => (h.rotation.x = Math.max(0, Math.sin(t * 6 + k * 2 + i)) * 0.6));
         }
         // A tea table on the pavement here and there.
-        if (r2 > 0.5 && r2 < 0.62) {
+        if (r2 > 0.5 && r2 < 0.62 && !shelter) {
           const tt = this.use(`t${i}${side}`, () => teaTable());
           tt.position.set(side * (ROAD_HALF + 2.3) + bend(d + 2.5), 0, -(d + 2.5));
+        }
+        if (shelter) {
+          const bs = this.use(`bs${i}${side}`, () => busStop(side));
+          bs.position.set(side * (ROAD_HALF + 2.2) + bend(d + 3), 0, -(d + 3));
+        }
+        if (warn) {
+          const ds = this.use(`ds${i}${side}`, () => dangerSign(side));
+          ds.position.set(side * (ROAD_HALF + 0.75) + bend(d + 1), 0, -(d + 1));
+        }
+        // An old man strolls toward you, from where he was when he came into view.
+        if (r3 > 0.07 && r3 < 0.15) {
+          const om = this.use(`om${i}${side}`, () => Object.assign(oldMan(), { userData: { born: t } }));
+          const walked = t - om.userData.born;
+          const dd = d + 1 - walked * 1.1;
+          om.position.set(side * (ROAD_HALF + 0.8) + bend(dd), 0, -dd);
+          showFrame(om, Math.floor(walked * 2.8));
+        }
+        // Pigeons bob about on the pavement.
+        if (r3 > 0.15 && r3 < 0.25 && !shelter) {
+          const pg = this.use(`pg${i}${side}`, () => pigeons(i));
+          pg.position.set(side * (ROAD_HALF + 1.7) + bend(d + 4.5), 0, -(d + 4.5));
+          pg.children.forEach((h, k) => showFrame(h, Math.floor(t * 3 + k * 0.7 + i)));
+        }
+        // Gulls wheel over the port cities.
+        if (c.sea && r3 > 0.92) {
+          const gu = this.use(`gu${i}${side}`, () => seagull());
+          const a = t * 0.7 + i * 1.3;
+          const dd = d + Math.sin(a) * 4;
+          gu.position.set(side * 2.5 + Math.cos(a) * 4 + bend(dd), 6.5 + Math.sin(t * 1.3 + i) * 0.6, -dd);
+          gu.rotation.set(0, Math.atan2(-Math.sin(a), -Math.cos(a)), 0.35); // along the circle, banking in
+          showFrame(gu, Math.floor(t * 4.5 + i));
         }
       }
     }

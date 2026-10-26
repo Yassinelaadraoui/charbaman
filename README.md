@@ -78,6 +78,13 @@ The other models were simplified and their textures baked into small atlases wit
 - "Realistic Animated Donkey 3D Model" by WildMesh 3D (https://sketchfab.com/WildMesh_3D), posed with
   `scripts/skin-to-static.py`
 - "Chicken" by MAXDESIGN-3D (https://sketchfab.com/MAXDESIGN)
+- "Bus Stop" by evtushenko (https://sketchfab.com/evtushenko)
+- "Landmine sign" by AbouAli (https://sketchfab.com/abouali), the danger signs before the chase
+- "Indian Old man walking" by anandmohan662 (https://sketchfab.com/anandmohan662), two frames of the walk baked with
+  `scripts/skin-to-static.py in.glb out.glb 0 <seconds>`
+- "Pigeon" by LostBoyz2078 (https://sketchfab.com/LostModels2025), licensed **CC-BY-NC-4.0**, and "Seagull" by kenchoo
+  (https://sketchfab.com/kenchoo), licensed **CC-BY-NC-SA-4.0**. These two are non-commercial only, so replace them
+  before selling the game or showing ads.
 
 Hero: "Spiderman Multiverse(Textured)(Rigged)" by CAPTAAINR (https://sketchfab.com/CAPTAAINR), CC-BY-4.0,
 converted with `scripts/convert-rigged-hero.py` (repainted orange and silver, emblem removed) and animated in code

@@ -10,7 +10,7 @@ texture atlas, filled by looking up the colour of the original, full-detail mode
 the mesh is tiny. Bigger triangles get bigger patches.
 
 Output (all base64): positions as uint16 within the bounding box, UVs as uint16, and the atlas as
-a JPEG. Metres, base on y=0, centred on x/z.
+a JPEG. Metres, base on y=0, centred on x/z (or around --origin).
 """
 import argparse
 import base64
@@ -38,6 +38,8 @@ ap.add_argument('--paint', nargs='*', default=[], help='colour untextured parts 
                 'PREFIX:MIN_SIZE:#hex[,#hex...] (first match wins, one random colour per part)')
 ap.add_argument('--passthrough', action='store_true', help='single-texture low-poly model: keep its mesh, '
                 'UVs and texture (with alpha) as they are')
+ap.add_argument('--origin', default='', help='x,y,z: keep the model around this point instead of centring it '
+                'on its box (so animation frames baked one by one line up)')
 ap.add_argument('--credit', default='')
 args = ap.parse_args()
 rng = np.random.default_rng(1)
@@ -181,6 +183,8 @@ bounds = np.vstack([allv, leafT.reshape(-1, 3)])
 lo, hi = bounds.min(axis=0), bounds.max(axis=0)
 size = hi - lo
 centre = np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2])
+if args.origin:
+    centre = np.array([float(x) for x in args.origin.split(',')])
 allv = allv - centre
 pts = pts - centre
 leafT = leafT - centre

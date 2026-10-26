@@ -1,6 +1,6 @@
 """Bake a skinned GLB into a static one in its rest pose (for scripts/bake-model.py).
 
-Usage: python3 scripts/skin-to-static.py in.glb out.glb [animation index]
+Usage: python3 scripts/skin-to-static.py in.glb out.glb [animation index] [time in seconds]
 Skinned vertices are stored in bind space and only make sense through their bones; this applies the
 skin once (joint world matrix x inverse bind matrix, weighted) and writes the result as plain meshes.
 """
@@ -12,6 +12,7 @@ import numpy as np
 
 src, dst = sys.argv[1], sys.argv[2]
 anim = int(sys.argv[3]) if len(sys.argv) > 3 else None
+at = float(sys.argv[4]) if len(sys.argv) > 4 else None
 raw = open(src, 'rb').read()
 jlen = struct.unpack('<I', raw[12:16])[0]
 gl = json.loads(raw[20:20 + jlen])
@@ -51,7 +52,31 @@ def local(node):
     return m
 
 
-# Optionally pose the skeleton with the first frame of an animation (some rest poses are odd).
+
+
+def sample(smp, path, t):
+    """An animation sampler's value at time t (first frame when t is None)."""
+    out = accessor(smp['output'])
+    if smp.get('interpolation') == 'CUBICSPLINE':
+        out = out[1::3]  # keep the values, drop the tangents
+    if t is None:
+        return out[0]
+    times = accessor(smp['input'])[:, 0]
+    i = int(np.clip(np.searchsorted(times, t, side='right') - 1, 0, len(times) - 1))
+    if i + 1 >= len(times) or smp.get('interpolation') == 'STEP':
+        return out[i]
+    f = float(np.clip((t - times[i]) / max(times[i + 1] - times[i], 1e-9), 0, 1))
+    a, b = out[i], out[i + 1]
+    if path == 'rotation':
+        if np.dot(a, b) < 0:
+            b = -b
+        q = a * (1 - f) + b * f  # nlerp is plenty between close keyframes
+        return q / np.linalg.norm(q)
+    return a * (1 - f) + b * f
+
+
+# Optionally pose the skeleton from an animation: its first frame (some rest poses are odd), or the
+# frame at a given time (to bake a few frames of a walk or a flap).
 if anim is not None:
     a = gl['animations'][anim]
     for ch in a['channels']:
@@ -60,7 +85,7 @@ if anim is not None:
         if path in ('translation', 'rotation', 'scale'):
             node = gl['nodes'][ch['target']['node']]
             node.pop('matrix', None)
-            node[path] = [float(x) for x in accessor(smp['output'])[0]]
+            node[path] = [float(x) for x in sample(smp, path, at)]
 
 parent = {c: i for i, nd in enumerate(gl['nodes']) for c in nd.get('children', [])}
 

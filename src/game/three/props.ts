@@ -7,10 +7,18 @@ import { bakedGeometry, bakedTexture } from './models/decode';
 import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
 import { BOY } from './models/boy';
+import { BUS_STOP } from './models/busStop';
 import { CHICKEN } from './models/chicken';
 import { DONKEY } from './models/donkey';
 import { FRUIT_STALL } from './models/fruitStall';
 import { MAJMAR } from './models/majmar';
+import { MINE_SIGN } from './models/mineSign';
+import { OLD_MAN_A } from './models/oldManA';
+import { OLD_MAN_B } from './models/oldManB';
+import { PIGEON_A } from './models/pigeonA';
+import { PIGEON_B } from './models/pigeonB';
+import { SEAGULL_A } from './models/seagullA';
+import { SEAGULL_B } from './models/seagullB';
 import { TAGINE } from './models/tagine';
 import { JUICE_BOTTLE } from './models/juiceBottle';
 import { LAMPPOST } from './models/lamppost';
@@ -88,6 +96,29 @@ export function model(key: string, data: BakedModel, fit: { height?: number; len
   if (fit.maxSide !== undefined) k = Math.min(k, fit.maxSide / Math.max(w, d));
   m.scale.setScalar(k);
   return m;
+}
+
+// An animation baked as a few static frames (scripts/skin-to-static.py with a time, then bake-model.py).
+// Every frame is scaled like the first so they line up; showFrame picks the one to draw.
+function frames(key: string, list: BakedModel[], fit: { height?: number; length?: number }) {
+  const g = new THREE.Group();
+  g.name = 'frames';
+  let k = 0;
+  list.forEach((data, i) => {
+    const m = model(`${key}${i}`, data, fit);
+    if (i === 0) k = m.scale.x;
+    m.scale.setScalar(k);
+    m.visible = i === 0;
+    g.add(m);
+  });
+  return g;
+}
+
+export function showFrame(o: THREE.Object3D, frame: number) {
+  const f = o.name === 'frames' ? o : o.getObjectByName('frames');
+  if (!f) return;
+  const n = f.children.length;
+  f.children.forEach((m, i) => (m.visible = i === ((frame % n) + n) % n));
 }
 
 const ORANGE = 0xff7a00;
@@ -399,7 +430,53 @@ export function warmModels(c: City) {
   model('dacia', DACIA, {}, grandTaxiPaint);
   model('police', POLICE_CAR, {});
   model('boy', BOY, {});
-  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['donkey', DONKEY], ['chicken', CHICKEN]] as const) model(key, data, {});
+  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman0', OLD_MAN_A], ['oldman1', OLD_MAN_B], ['pigeon0', PIGEON_A], ['pigeon1', PIGEON_B]] as const) model(key, data, {});
+  if (c.sea) for (const [key, data] of [['gull0', SEAGULL_A], ['gull1', SEAGULL_B]] as const) model(key, data, {});
+}
+
+// A bus shelter on the pavement, open side to the street.
+export function busStop(side: number) {
+  const g = new THREE.Group();
+  const m = model('busstop', BUS_STOP, { height: 2.6 });
+  m.rotation.y = -side * (Math.PI / 2);
+  g.add(m);
+  return g;
+}
+
+// An old man in a djellaba strolling down the pavement toward you (two walking frames).
+export function oldMan() {
+  const g = new THREE.Group();
+  g.add(frames('oldman', [OLD_MAN_A, OLD_MAN_B], { height: 1.7 }));
+  return g;
+}
+
+// Three pigeons bobbing their heads on the pavement. Each sits in a holder turned its own way.
+export function pigeons(seed: number) {
+  const g = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const holder = new THREE.Group();
+    holder.position.set(Math.cos(seed + i * 2.1) * 0.45, 0, Math.sin(seed * 1.7 + i * 2.1) * 0.6);
+    holder.rotation.y = seed * 1.9 + i * 2.4;
+    holder.add(frames('pigeon', [PIGEON_A, PIGEON_B], { length: 0.32 }));
+    g.add(holder);
+  }
+  return g;
+}
+
+// A seagull for the port cities, flapping (two frames). The model faces +z with its body at the origin.
+export function seagull() {
+  const g = new THREE.Group();
+  g.add(frames('gull', [SEAGULL_A, SEAGULL_B], { length: 1.3 }));
+  return g;
+}
+
+// A red skull-and-crossbones danger sign on a post, turned toward the oncoming runner.
+export function dangerSign(side: number) {
+  const g = new THREE.Group();
+  const m = model('minesign', MINE_SIGN, { height: 1.4 });
+  m.rotation.y = -side * 0.5;
+  g.add(m);
+  return g;
 }
 
 // A couple of chickens pecking about on the pavement.
