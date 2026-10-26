@@ -84,6 +84,9 @@ converted with `scripts/convert-rigged-hero.py` (repainted orange and silver, em
 (`src/game/three/hero.ts`). It is still a Spider-Man fan model, so replace it with an original character before a
 store release.
 
+Sound effects and particle sprites: Kenney (https://kenney.nl) Impact Sounds, Interface Sounds, RPG Audio and
+Particle Pack, CC0. Converted to m4a in `assets/sounds/` and to `src/game/three/particleTextures.ts`.
+
 The 200 dirham note is "200Dhs Moroccan money" by lordmehemedz (https://sketchfab.com/lordmehemedz), under the
 Sketchfab Standard license (allowed inside a game, not for redistribution as a model).
 

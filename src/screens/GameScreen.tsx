@@ -7,6 +7,7 @@ import { GLView } from 'expo-gl';
 import { GameRenderer } from '../game/three/scene';
 import { Bottle } from '../game/sprites';
 import { colors } from '../theme';
+import { initSounds, play } from '../services/sound';
 
 export type RunResult = { mode: GameMode; cityIndex: number; cleared: boolean; score: number; cans: number; distance: number };
 
@@ -59,18 +60,25 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
     const s = game.current;
     switch (e.type) {
       case 'can':
+        play('bottle');
+        gfx.current?.burst('bottle', e.x ?? s.x, 1, e.z ?? s.z);
         pop('+1', colors.gold);
         buzz('light');
         break;
       case 'cash':
+        play('cash');
+        gfx.current?.burst('cash', e.x ?? s.x, 1, e.z ?? s.z);
         pop('+200 DH', colors.mint, true);
         buzz('success');
         break;
       case 'hit':
+        play('hit');
+        gfx.current?.burst('hit', s.x, 0.9, s.z + 0.8);
         pop('OUCH!', colors.danger, true);
         buzz('heavy');
         break;
       case 'life':
+        play('life');
         pop('1UP!', colors.mint, true);
         buzz('success');
         break;
@@ -79,18 +87,23 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
         buzz('heavy');
         break;
       case 'checkpoint':
+        play('checkpoint');
         pop('CHECKPOINT!', colors.white, true);
         buzz('success');
         break;
       case 'skate':
+        play('skate');
+        gfx.current?.burst('skate', s.x, 0.4, s.z);
         pop('SKATEBOARD!', colors.gold, true);
         buzz('success');
         break;
       case 'tajine':
+        play('tajine');
         pop('TAJINE HEAD! CONTROLS FLIPPED', colors.danger, true);
         buzz('heavy');
         break;
       case 'chase':
+        play('chase');
         showBanner('RUN! THE GIANT CHARBA!');
         buzz('heavy');
         break;
@@ -99,6 +112,7 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
         break;
       case 'clear':
       case 'over':
+        play(e.type);
         buzz(e.type === 'clear' ? 'success' : 'heavy');
         break;
     }
@@ -106,6 +120,7 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
 
   useEffect(() => {
     showBanner(mode === 'endless' ? 'ENDLESS RUN' : CITIES[cityIndex].name.toUpperCase());
+    initSounds();
     let raf = 0;
     let last = 0;
     const loop = (ts: number) => {
@@ -115,7 +130,22 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
       if (!pausedRef.current) {
         const kb = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0);
         input.current.steer += kb * 7 * dt;
+        const wasAir = s.y > 0.05;
+        const wasSlide = s.slide > 0;
+        const stride = Math.floor(s.runPhase / Math.PI);
         step(s, dt, input.current);
+        // Movement sounds come from state changes rather than engine events.
+        const air = s.y > 0.05;
+        if (!wasAir && air) play('jump');
+        if (wasAir && !air) {
+          play('land');
+          gfx.current?.burst('land', s.x, 0.05, s.z);
+        }
+        if (!wasSlide && s.slide > 0) play('slide');
+        const nextStride = Math.floor(s.runPhase / Math.PI);
+        if (!air && s.slide <= 0 && s.skate <= 0 && nextStride !== stride && (s.phase === 'run' || s.phase === 'chase')) {
+          play(nextStride % 2 ? 'step1' : 'step2');
+        }
         input.current = { steer: 0, jump: false, slide: false };
         for (const e of s.events) handleEvent(e);
         s.events.length = 0;

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { City } from '../cities';
 import { GameState, ROAD_HALF, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
+import { maskTexture } from './models/decode';
+import { PARTICLES } from './particleTextures';
 import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
@@ -35,6 +37,17 @@ const color = (hex: string) => new THREE.Color(hex);
 
 type Pooled = { obj: THREE.Object3D; seen: number };
 
+// Short-lived sprite bursts (pickups, hits, landings). Positions are in engine space (x, y, z along the street).
+export type BurstKind = 'bottle' | 'cash' | 'hit' | 'land' | 'skate';
+type Particle = { sprite: THREE.Sprite; x: number; y: number; z: number; vx: number; vy: number; vz: number; born: number; life: number; size: number; grow: number; gravity: number };
+const BURSTS: Record<BurstKind, { tex: keyof typeof PARTICLES; color: number; n: number; speed: number; up: number; size: number; grow: number; life: number; gravity: number }> = {
+  bottle: { tex: 'star', color: 0xffc94a, n: 7, speed: 2.2, up: 2.5, size: 0.35, grow: -0.2, life: 0.45, gravity: 4 },
+  cash: { tex: 'star', color: 0x7cd992, n: 12, speed: 3, up: 3.5, size: 0.45, grow: -0.2, life: 0.7, gravity: 4 },
+  skate: { tex: 'spark', color: 0xff9a2e, n: 10, speed: 3, up: 2, size: 0.5, grow: 0, life: 0.5, gravity: 2 },
+  hit: { tex: 'smoke', color: 0xd8cfc4, n: 8, speed: 1.6, up: 1.2, size: 0.6, grow: 1.4, life: 0.7, gravity: -0.5 },
+  land: { tex: 'dirt', color: 0xc9b39a, n: 5, speed: 1.2, up: 0.4, size: 0.35, grow: 0.8, life: 0.4, gravity: 0 },
+};
+
 export class GameRenderer {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -51,6 +64,9 @@ export class GameRenderer {
   sun: THREE.DirectionalLight;
   giant: THREE.Group;
   pool = new Map<string, Pooled>();
+  particles: Particle[] = [];
+  spriteMats = new Map<string, THREE.SpriteMaterial>();
+  lastTime = 0;
   frame = 0;
   cityId = '';
   camDist = 6.2;
@@ -120,6 +136,56 @@ export class GameRenderer {
     this.giant = giantBottle();
     this.giant.visible = false;
     this.scene.add(this.giant);
+  }
+
+  burst(kind: BurstKind, x: number, y: number, z: number) {
+    const b = BURSTS[kind];
+    const key = `${b.tex}|${b.color}`;
+    let m = this.spriteMats.get(key);
+    if (!m) {
+      m = new THREE.SpriteMaterial({ map: maskTexture(PARTICLES[b.tex]), color: b.color, transparent: true, depthWrite: false });
+      this.spriteMats.set(key, m);
+    }
+    for (let i = 0; i < b.n && this.particles.length < 80; i++) {
+      const a = (i / b.n) * Math.PI * 2 + Math.random() * 0.6;
+      const sprite = new THREE.Sprite(m.clone());
+      this.scene.add(sprite);
+      this.particles.push({
+        sprite,
+        x, y, z,
+        vx: Math.cos(a) * b.speed * (0.6 + Math.random() * 0.6),
+        vy: b.up * (0.5 + Math.random() * 0.7),
+        vz: Math.sin(a) * b.speed * (0.6 + Math.random() * 0.6),
+        born: this.lastTime,
+        life: b.life * (0.8 + Math.random() * 0.4),
+        size: b.size,
+        grow: b.grow,
+        gravity: b.gravity,
+      });
+    }
+  }
+
+  private updateParticles(s: GameState, bend: (d: number) => number) {
+    const dt = Math.min(0.05, Math.max(0, s.time - this.lastTime));
+    this.lastTime = s.time;
+    this.particles = this.particles.filter((p) => {
+      const age = s.time - p.born;
+      if (age > p.life || age < 0) {
+        this.scene.remove(p.sprite);
+        p.sprite.material.dispose();
+        return false;
+      }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      p.vy -= p.gravity * dt;
+      const d = p.z - s.z;
+      p.sprite.position.set(p.x + bend(d), Math.max(0.05, p.y), -d);
+      const k = age / p.life;
+      p.sprite.scale.setScalar(Math.max(0.01, p.size * (1 + p.grow * k)));
+      p.sprite.material.opacity = 1 - k * k;
+      return true;
+    });
   }
 
   fitCamera(aspect: number) {
@@ -320,6 +386,8 @@ export class GameRenderer {
         }
       }
     }
+
+    this.updateParticles(s, bend);
 
     // The giant Charba rolling after you.
     this.giant.visible = chase;

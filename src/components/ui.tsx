@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { Animated, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { initSounds, play } from '../services/sound';
 import { colors } from '../theme';
 
 type BtnProps = { label: string; onPress: () => void; variant?: 'primary' | 'light' | 'ghost'; style?: StyleProp<ViewStyle>; disabled?: boolean };
@@ -9,7 +10,13 @@ export function Button({ label, onPress, variant = 'primary', style, disabled }:
   const scale = useRef(new Animated.Value(1)).current;
   const to = (v: number) => Animated.spring(scale, { toValue: v, useNativeDriver: true, speed: 40, bounciness: 8 }).start();
   return (
-    <Pressable onPress={onPress} onPressIn={() => to(0.94)} onPressOut={() => to(1)} disabled={disabled}>
+    <Pressable
+      onPress={() => {
+        initSounds();
+        play('click');
+        onPress();
+      }}
+      onPressIn={() => to(0.94)} onPressOut={() => to(1)} disabled={disabled}>
       <Animated.View style={[styles.btn, styles[variant], disabled && { opacity: 0.5 }, style, { transform: [{ scale }] }]}>
         <Text style={[styles.label, variant === 'light' && { color: colors.orangeDeep }]}>{label}</Text>
       </Animated.View>

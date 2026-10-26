@@ -58,3 +58,18 @@ export function bakedTexture(m: BakedModel, recolor?: (px: Uint8Array, i: number
   t.needsUpdate = true;
   return t;
 }
+
+// A white sprite whose alpha comes from a greyscale JPEG (for particles).
+export function maskTexture(jpeg: string) {
+  const img = decodeJpeg(base64ToBytes(jpeg), { useTArray: true, formatAsRGBA: true });
+  for (let i = 0; i < img.data.length; i += 4) {
+    img.data[i + 3] = img.data[i];
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+  }
+  const t = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
