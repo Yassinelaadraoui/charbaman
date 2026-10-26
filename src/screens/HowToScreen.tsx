@@ -36,7 +36,8 @@ export function HowToScreen({ onBack }: { onBack: () => void }) {
             Mosque, Derby House, Popular House, Old Neighborhood House and Morocco House by abdlilah ben; Hassan Tower by
             Ysn.Aitaddi; City Gate, Mixed Facade and Moroccan Boy by Mrigua Mohamed; city walls from "Moroccan culture" by
             medbunz; Dacia Lodgy by abdelghani.0; police car by FF 3DMODEL; palm by KrazzyElf; maple by atrodler; lamppost by Haggy the model ripper; tea table by
-            A9908244; apple box by Pixxellab; juice bottle by Spacesea; 200 dirham note by lordmehemedz (Sketchfab Standard).
+            A9908244; apple box by Pixxellab; juice bottle by Spacesea; 200 dirham note by lordmehemedz (Sketchfab Standard); tagine by
+            laabidate; majmar by Mrigua Mohamed; fruit stall by Isa_van_den_Bosch; hero based on "Spiderman Multiverse" by CAPTAAINR.
             Models were simplified and recoloured for the game.
           </Text>
         </ScrollView>

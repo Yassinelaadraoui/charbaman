@@ -36,19 +36,16 @@ keeps working and the leaderboard shows scores saved on the phone.
 
 ## 3D hero model
 
-The game renders in real 3D with three.js on `expo-gl` (works in Expo Go). The hero comes from
-`assets/models/hero.obj`, a low-poly model split into 16 body parts (head, neck, torso, pelvis, upper arms,
-forearms, hands, thighs, shins, feet) in a T-pose. Because every part is its own mesh, the run, jump and slide
-animations are done by rotating joints in code, PS1 style, with no rigging needed.
-
-To swap in another model split the same way:
+The hero is a rigged, skinned model (`src/game/three/heroRigged.ts`). The run, jump, slide and skateboard poses
+are written in code in `src/game/three/hero.ts`, which rotates the skeleton's bones every frame, so any rigged
+model works without animation clips. To swap in another rigged GLB (ideally a Biped or Mixamo skeleton, under
+about 10k triangles):
 
 ```bash
-python3 scripts/convert-hero.py path/to/model.obj src/game/three/heroMesh.ts
+python3 scripts/convert-rigged-hero.py path/to/hero.glb src/game/three/heroRigged.ts --credit "..."
 ```
 
-Current placeholder model: "3D Pepsiman" by ChristianDPS on Sketchfab, recoloured. It is a fan model of a
-PepsiCo character, so replace it with an original Charbaman model before publishing to the stores.
+Then check the bone names in `BONE_OF` in `hero.ts` match the new skeleton.
 
 ## Credits
 
@@ -74,6 +71,15 @@ The other models were simplified and their textures baked into small atlases wit
 - "A Moroccan style table" by A9908244 (https://sketchfab.com/A9908244)
 - "Low Poly Apple box" by Pixxellab (https://sketchfab.com/Pixxellab), recoloured
 - "A bottle juice" by Spacesea (https://sketchfab.com/-Spacesea-), used as the Charba bottle
+
+- "Traditional Moroccan Terracotta Tagine" by laabidate (https://sketchfab.com/laabidate)
+- "Majmar - Stylized Prop Tier I" by Mrigua Mohamed (https://sketchfab.com/mrigua)
+- "fruit market stall" by Isa_van_den_Bosch (https://sketchfab.com/Isa_van_den_Bosch)
+
+Hero: "Spiderman Multiverse(Textured)(Rigged)" by CAPTAAINR (https://sketchfab.com/CAPTAAINR), CC-BY-4.0,
+converted with `scripts/convert-rigged-hero.py` (repainted orange and silver, emblem removed) and animated in code
+(`src/game/three/hero.ts`). It is still a Spider-Man fan model, so replace it with an original character before a
+store release.
 
 The 200 dirham note is "200Dhs Moroccan money" by lordmehemedz (https://sketchfab.com/lordmehemedz), under the
 Sketchfab Standard license (allowed inside a game, not for redistribution as a model).

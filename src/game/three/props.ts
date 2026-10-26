@@ -7,6 +7,9 @@ import { bakedGeometry, bakedTexture } from './models/decode';
 import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
 import { BOY } from './models/boy';
+import { FRUIT_STALL } from './models/fruitStall';
+import { MAJMAR } from './models/majmar';
+import { TAGINE } from './models/tagine';
 import { JUICE_BOTTLE } from './models/juiceBottle';
 import { LAMPPOST } from './models/lamppost';
 import { MAPLE_TREE } from './models/mapleTree';
@@ -271,11 +274,9 @@ function arch(e: Entity, finish: boolean) {
   return g;
 }
 
-function tajinePickup() {
+export function tajinePickup(width = 0.6) {
   const g = new THREE.Group();
-  g.add(cyl(0.32, 0.32, 0.07, 12, 0x7b3f1d, 0, 0.04));
-  g.add(cyl(0.02, 0.28, 0.42, 12, 0xb5562c, 0, 0.29));
-  g.add(sphere(0.06, 0x7b3f1d, 0, 0.52));
+  g.add(model('tagine', TAGINE, { length: width }));
   return g;
 }
 
@@ -396,7 +397,7 @@ export function warmModels(c: City) {
   model('dacia', DACIA, {}, grandTaxiPaint);
   model('police', POLICE_CAR, {});
   model('boy', BOY, {});
-  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE]] as const) model(key, data, {});
+  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL]] as const) model(key, data, {});
 }
 
 // A boy cheering from the pavement, arms out.
@@ -435,13 +436,25 @@ export function maple() {
   return g;
 }
 
-// A carved Moroccan tea table on the pavement, with a glass of Charba on it.
+// A carved Moroccan tea table on the pavement, with a bottle of Charba on it and an incense burner beside it.
 export function teaTable() {
   const g = new THREE.Group();
   g.add(model('teatable', TEA_TABLE, { height: 0.6 }));
   const b = model('juice', JUICE_BOTTLE, { height: 0.3 });
   b.position.set(0.1, 0.6, 0);
   g.add(b);
+  const m = model('majmar', MAJMAR, { height: 0.3 });
+  m.position.set(0, 0, 0.75);
+  g.add(m);
+  return g;
+}
+
+// Souk fruit stall on the pavement; its counter faces the street.
+export function fruitStall(side: number) {
+  const g = new THREE.Group();
+  const m = model('stall', FRUIT_STALL, { height: 2.3 });
+  m.rotation.y = -side * (Math.PI / 2) + Math.PI; // front is -z
+  g.add(m);
   return g;
 }
 

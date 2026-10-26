@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { City } from '../cities';
 import { GameState, ROAD_HALF, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels } from './props';
+import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -16,8 +16,8 @@ const STRIPS = 6; // ground L/R, curb L/R, road, centre dash
 // Pavement decor per city; maples line the streets in the cooler north.
 const DECOR: Record<string, string[]> = {
   default: ['palm', 'lamp', 'lamp', 'flag'],
-  marrakech: ['palm', 'palm', 'lamp', 'flag'],
-  fes: ['maple', 'lamp', 'maple', 'flag'],
+  marrakech: ['palm', 'stall', 'lamp', 'flag', 'stall'],
+  fes: ['maple', 'lamp', 'stall', 'flag'],
   tangier: ['maple', 'lamp', 'palm', 'flag'],
 };
 
@@ -297,8 +297,10 @@ export class GameRenderer {
         }
         const kinds = DECOR[c.id] ?? DECOR.default;
         const kind = kinds[Math.floor(r * kinds.length)];
-        const p = this.use(`d${i}${side}`, () => (kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : flag()));
-        p.position.set(side * (ROAD_HALF + 1.3) + bend(d), 0, -d);
+        const p = this.use(`d${i}${side}`, () =>
+          kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : flag(),
+        );
+        p.position.set(side * (ROAD_HALF + (kind === 'stall' ? 1.9 : 1.3)) + bend(d), 0, -d);
         if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
         if (kind === 'lamp') p.rotation.y = side > 0 ? 0 : Math.PI; // arm over the road
         // A tea table on the pavement here and there.
