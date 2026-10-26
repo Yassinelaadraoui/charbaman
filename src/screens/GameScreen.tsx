@@ -19,7 +19,11 @@ type Props = { mode: GameMode; cityIndex: number; lite?: boolean; onExit: () => 
 
 type Popup = { id: number; text: string; color: string; big?: boolean; born: number };
 
-const SWIPE = 32;
+// Touch tuning. A swipe is a quick vertical flick of SWIPE px measured from an anchor that follows the finger
+// while it steers sideways, so a jump or slide works in the middle of a long drag, as often as you like.
+const SWIPE = 20;
+const SWIPE_COOLDOWN = 140; // ms before the same touch can swipe again
+const STEER_SPAN = 0.36; // dragging this share of the screen width crosses half the street
 
 const buzz = (kind: 'light' | 'heavy' | 'success') => {
   if (Platform.OS === 'web' || !hapticsOn()) return;
@@ -134,7 +138,7 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
       const s = game.current;
       if (!pausedRef.current) {
         const kb = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0);
-        input.current.steer += kb * 7 * dt;
+        input.current.steer += kb * 9 * dt;
         const wasAir = s.y > 0.05;
         const wasSlide = s.slide > 0;
         const stride = Math.floor(s.runPhase / Math.PI);
@@ -228,35 +232,40 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
     };
   }, []);
 
-  // Touch: drag sideways to steer freely, swipe up to jump, swipe down to slide, tap to jump.
-  const gesture = useRef({ lastX: 0, startY: 0, startT: 0, fired: false, moved: 0 });
+  // Touch: drag sideways to steer freely, flick up to jump, flick down to slide, tap to jump.
+  const gesture = useRef({ lastX: 0, lastY: 0, anchorY: 0, startT: 0, lastSwipe: 0, swiped: false, moved: 0 });
   const pan = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (_, g) => {
-          gesture.current = { lastX: g.x0, startY: g.y0, startT: Date.now(), fired: false, moved: 0 };
+          gesture.current = { lastX: g.x0, lastY: g.y0, anchorY: g.y0, startT: Date.now(), lastSwipe: 0, swiped: false, moved: 0 };
           start(game.current);
         },
         onPanResponderMove: (_, g) => {
           const gs = gesture.current;
           const dx = g.moveX - gs.lastX;
+          const stepY = g.moveY - gs.lastY;
           gs.lastX = g.moveX;
-          gs.moved += Math.abs(dx);
-          input.current.steer += (dx / (W * 0.42)) * ROAD_HALF;
-          const dy = g.moveY - gs.startY;
-          if (!gs.fired && Math.abs(dy) > SWIPE && Math.abs(g.dy) > Math.abs(g.dx) * 0.9) {
-            gs.fired = true;
+          gs.lastY = g.moveY;
+          gs.moved += Math.abs(dx) + Math.abs(stepY);
+          input.current.steer += (dx / (W * STEER_SPAN)) * ROAD_HALF;
+          // Mostly sideways movement drags the anchor along, so steering never adds up to a fake swipe.
+          if (Math.abs(dx) > Math.abs(stepY) * 1.5) gs.anchorY = g.moveY;
+          const dy = g.moveY - gs.anchorY;
+          const now = Date.now();
+          if (Math.abs(dy) > SWIPE && now - gs.lastSwipe > SWIPE_COOLDOWN) {
             if (dy < 0) input.current.jump = true;
             else input.current.slide = true;
+            gs.lastSwipe = now;
+            gs.swiped = true;
+            gs.anchorY = g.moveY;
           }
         },
-        onPanResponderRelease: (_, g) => {
+        onPanResponderRelease: () => {
           const gs = gesture.current;
-          if (!gs.fired && gs.moved < 10 && Math.abs(g.dy) < 10 && Date.now() - gs.startT < 250) {
-            input.current.jump = true;
-          }
+          if (!gs.swiped && gs.moved < 12 && Date.now() - gs.startT < 300) input.current.jump = true;
         },
       }),
     [W],

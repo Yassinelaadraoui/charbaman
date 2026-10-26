@@ -206,12 +206,12 @@ const grandTaxiPaint = (px: Uint8Array, i: number) => {
   }
 };
 
-// Traffic mixes petit taxis (most), Dacia grand taxis and the odd police car.
+// Traffic mixes petit taxis, Dacia grand taxis and plenty of police vans. Oncoming cars (vz < 0) face you.
 function car(e: Entity, c: City) {
   const r = ((Math.imul(e.id + 1, 2654435761) >>> 0) % 100) / 100;
-  if (r < 0.6) return taxi(c);
   const g = new THREE.Group();
-  if (r < 0.88) {
+  if (r < 0.45) g.add(taxi(c));
+  else if (r < 0.7) {
     const m = model('dacia', DACIA, { length: 4.0 }, grandTaxiPaint);
     m.rotation.y = Math.PI; // front is +z; drive away from the camera
     g.add(m);
@@ -219,7 +219,17 @@ function car(e: Entity, c: City) {
     const m = model('police', POLICE_CAR, { length: 4.0 });
     m.rotation.y = -Math.PI / 2; // modelled lengthwise along x, nose at -x
     g.add(m);
+    // A light bar on the roof; the scene flashes it red and blue.
+    const roof = POLICE_CAR.size[1] * m.scale.y;
+    g.add(box(0.9, 0.12, 0.28, 0x222222, 0, roof + 0.02, 0.3));
+    for (const [name, x, color] of [['sirenR', -0.24, 0xff2b2b], ['sirenB', 0.24, 0x2b6bff]] as const) {
+      const light = new THREE.Mesh(geo('siren', () => new THREE.BoxGeometry(0.36, 0.14, 0.3)), mat(color, { emissive: true }));
+      light.position.set(x, roof + 0.12, 0.3);
+      light.name = name;
+      g.add(light);
+    }
   }
+  if (e.vz < 0) g.rotation.y = Math.PI; // coming at you
   return g;
 }
 

@@ -73,6 +73,8 @@ export class GameRenderer {
   camHeight = 3.2;
   onFrameEnd?: () => void;
   debugCamera?: { pos: [number, number, number]; look: [number, number, number] }; // for automated playtests
+  heroX = 0; // last frame's hero position and lean, for leaning into turns
+  heroLean = 0;
   lite = false; // Fast graphics: no pedestrians, animals or small street furniture, fewer particles
 
   constructor(gl: WebGLRenderingContext, width: number, height: number, onFrameEnd?: () => void) {
@@ -319,6 +321,12 @@ export class GameRenderer {
 
     // Hero.
     this.hero.root.position.set(s.x, s.y, 0);
+    // Lean into the turn (smoothed so a twitchy finger doesn't make him wobble).
+    const frameDt = Math.max(1 / 120, Math.min(0.05, s.time - this.lastTime));
+    const lean = Math.max(-0.3, Math.min(0.3, ((s.x - this.heroX) / frameDt) * 0.035));
+    this.heroX = s.x;
+    this.heroLean += (lean - this.heroLean) * 0.3;
+    this.hero.root.rotation.set(0, -this.heroLean * 0.5, -this.heroLean);
     poseHero(this.hero, {
       runPhase: s.runPhase,
       airborne: s.y > 0.05,
@@ -340,6 +348,17 @@ export class GameRenderer {
       o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
       if (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
       if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? -0.5 : 0.5;
+      if (e.kind === 'taxi') {
+        // Police lights flash in turn; moving cars rock a little on their springs.
+        const on = Math.floor(t * 6 + e.id) % 2 === 0;
+        const red = o.getObjectByName('sirenR');
+        const blue = o.getObjectByName('sirenB');
+        if (red && blue) {
+          red.visible = on;
+          blue.visible = !on;
+        }
+        if (e.vz) o.position.y = Math.sin(t * 13 + e.id) * 0.015;
+      }
       if (e.kind === 'donkey') {
         o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
         const dk = o.getObjectByName('donkey');

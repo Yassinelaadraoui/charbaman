@@ -4,8 +4,12 @@ import { CITIES, City } from './cities';
 // y is height above the road.
 export const ROAD_HALF = 3;
 export const PLAYER_HALF = 0.35;
-const GRAVITY = 32;
-const JUMP_V = 11.5;
+// A snappy jump: quick up, quicker down (about 0.6 s in the air, 2.1 m high, clear of 0.9 m crates for 0.45 s).
+const GRAVITY = 40;
+const FALL_GRAVITY = 54;
+const JUMP_V = 13;
+const JUMP_BUFFER = 0.15; // a jump pressed this long before landing still happens
+const WAKE = 80; // oncoming cars set off when you are this close
 const SLIDE_TIME = 0.7;
 const STAND_H = 1.8;
 const SLIDE_H = 0.8;
@@ -37,7 +41,9 @@ export type Entity = {
   h: number; // height
   depth: number;
   vx: number;
-  vz: number;
+  vz: number; // m/s along the street; negative drives toward you
+  homeZ?: number; // where a moving car starts, so a respawn puts it back
+  wake?: number; // starts moving when the runner is this close
   done: boolean; // collected / triggered / already hit
 };
 
@@ -92,6 +98,7 @@ export type GameState = {
   shake: number;
   chaseGap: number;
   stun: number;
+  jumpBuffer: number;
   events: GameEvent[];
   nextId: number;
 };
@@ -158,6 +165,7 @@ export function createGame(mode: GameMode, cityIndex = 0): GameState {
     shake: 0,
     chaseGap: CHASE_GAP,
     stun: 0,
+    jumpBuffer: 0,
     events: [],
     nextId: 1,
   };
@@ -200,40 +208,53 @@ function canArc(s: GameState, z: number, x: number) {
 
 const laneX = (s: GameState) => range(s, -2.3, 2.3);
 
+function oncoming(s: GameState, z: number, x: number, speed: number) {
+  add(s, { kind: 'taxi', z, homeZ: z, x, w: 0.85, h: 1.4, depth: 3.8, vz: -speed, wake: WAKE });
+}
+
 // One obstacle pattern; returns how much track it used.
 function pattern(s: GameState, z: number, inChase: boolean): number {
   const c = city(s);
   const r = rand(s);
   const hard = inChase ? 0.25 : 0;
-  if (r < 0.16 - hard) {
+  if (r < 0.14 - hard) {
     const x0 = laneX(s);
     canLine(s, z, x0, rand(s) < 0.5 ? x0 : laneX(s), 6);
     return 15;
   }
-  if (r < 0.32) {
+  if (r < 0.28) {
     add(s, { kind: 'crate', z, x: 0, w: ROAD_HALF, h: 0.9, depth: 0.9 });
     canArc(s, z, laneX(s));
     return 8;
   }
-  if (r < 0.46) {
+  if (r < 0.4) {
     add(s, { kind: 'awning', z, x: 0, y: 1.15, w: ROAD_HALF, h: 1.4, depth: 0.7 });
     canLine(s, z - 1.2, 0, 0, 2, 0.35);
     return 6;
   }
-  if (r < 0.6) {
-    const x = laneX(s);
-    const moving = rand(s) < 0.5;
-    add(s, { kind: 'taxi', z, x, w: 0.85, h: 1.4, depth: 3.8, vz: moving ? range(s, 4, 8) : 0 });
-    const side = x > 0 ? -1.8 : 1.8;
-    canLine(s, z - 3, x + side, x + side, 3);
-    return 10;
+  if (r < 0.58) {
+    // Oncoming traffic down one side of the street, bottles on the other. The car waits in the haze and sets off
+    // when you are WAKE m away, so it meets you inside the stretch kept clear for it (no driving through crates).
+    const side = rand(s) < 0.5 ? -1 : 1;
+    const x = side * range(s, 1.2, 2.1);
+    oncoming(s, z + 34, x, range(s, 6, 9.5) * (0.85 + c.density * 0.4));
+    canLine(s, z + 2, -side * 1.6, -side * 1.6, 4);
+    return 40;
   }
-  if (r < 0.7) {
+  if (r < 0.65) {
     const gap = range(s, -1.2, 1.2);
     add(s, { kind: 'taxi', z, x: gap - 2.05, w: 0.85, h: 1.4, depth: 3.8 });
     add(s, { kind: 'taxi', z: z + range(s, 0, 1.5), x: gap + 2.05, w: 0.85, h: 1.4, depth: 3.8 });
     canLine(s, z - 2, gap, gap, 3);
     return 10;
+  }
+  if (r < 0.72) {
+    // Two-way traffic: cars coming at you on both sides, a gap down the middle with bottles in it.
+    const v = range(s, 6, 9) * (0.85 + c.density * 0.4);
+    oncoming(s, z + 34, -1.95, v);
+    oncoming(s, z + 46, 1.95, v * range(s, 0.9, 1.1));
+    canLine(s, z + 2, 0, 0, 5);
+    return 52;
   }
   if (r < 0.8) {
     const dir = rand(s) < 0.5 ? -1 : 1;
@@ -304,6 +325,7 @@ function respawn(s: GameState) {
   s.tajine = 0;
   s.skate = 0;
   for (const e of s.entities) {
+    if (e.homeZ !== undefined) e.z = e.homeZ; // cars drive back to where they waited
     if (e.z > s.z - 2 && e.kind !== 'can' && e.kind !== 'cash') e.done = false;
   }
 }
@@ -370,16 +392,19 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   s.x = Math.max(-ROAD_HALF + PLAYER_HALF, Math.min(ROAD_HALF - PLAYER_HALF, s.x + steer));
 
   const grounded = s.y <= 0.0001;
-  if (input.jump && grounded) {
+  // A jump pressed a moment before landing is kept and fires on touchdown.
+  s.jumpBuffer = input.jump ? JUMP_BUFFER : Math.max(0, s.jumpBuffer - dt);
+  if (s.jumpBuffer > 0 && grounded) {
     s.vy = JUMP_V;
     s.slide = 0;
+    s.jumpBuffer = 0;
   }
   if (input.slide) {
     if (grounded) s.slide = SLIDE_TIME;
     else s.vy = Math.min(s.vy, -JUMP_V); // slam down, then slide on landing
   }
   if (!grounded || s.vy > 0) {
-    s.vy -= GRAVITY * dt;
+    s.vy -= (s.vy > 0 ? GRAVITY : FALL_GRAVITY) * dt;
     s.y = Math.max(0, s.y + s.vy * dt);
     if (s.y === 0) {
       s.vy = 0;
@@ -400,7 +425,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
         e.vx = -e.vx;
       }
     }
-    if (e.vz) e.z += e.vz * dt;
+    if (e.vz && (e.wake === undefined || e.z - s.z < e.wake)) e.z += e.vz * dt;
     if (e.done || !overlaps(s, e, z0, s.z)) continue;
     const top = e.y + e.h;
     const vertical = s.y < top && s.y + standHeight(s) > e.y;
@@ -479,7 +504,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   // Keep everything since the respawn point so a restart replays the same layout.
   const keepFrom = Math.min(s.z, s.phase === 'chase' ? chaseStart(s) : s.checkpointZ) - 20;
   if (s.entities.length > 0 && s.entities[0].z < keepFrom) {
-    s.entities = s.entities.filter((e) => e.z > keepFrom);
+    s.entities = s.entities.filter((e) => (e.homeZ ?? e.z) > keepFrom);
   }
   generate(s, s.z + 160);
 }
