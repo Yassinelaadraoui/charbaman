@@ -56,7 +56,7 @@ PepsiCo character, so replace it with an original Charbaman model before publish
   by Goedude (https://sketchfab.com/Goedude), licensed under CC-BY-4.0. Decimated and recoloured per city
   with `scripts/convert-taxi.py`.
 
-The other models were shrunk to vertex-coloured meshes with `scripts/convert-model.py`
+The other models were simplified and their textures baked into small atlases with `scripts/bake-model.py`
 (files in `src/game/three/models/`). All are licensed under CC-BY-4.0 and come from Sketchfab:
 
 - "Hassan II Mosque: Casablanca Architectural", "Casablanca Derby House: Wydad & Raja Culture",

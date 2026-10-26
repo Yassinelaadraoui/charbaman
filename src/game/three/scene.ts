@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { City } from '../cities';
 import { GameState, ROAD_HALF, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, mat, modelHouse, palm, shadeHex, spectator } from './props';
+import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, mat, modelHouse, palm, shadeHex, spectator, warmModels } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -175,6 +175,7 @@ export class GameRenderer {
       }
       m.material = clone;
     });
+    warmModels(c);
     // City change: drop pooled props so they are rebuilt in the new colours.
     for (const [, p] of this.pool) this.scene.remove(p.obj);
     this.pool.clear();

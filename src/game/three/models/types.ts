@@ -1,8 +1,12 @@
-// A vertex-coloured low-poly model produced by scripts/convert-model.py.
-// size = [width, height, depth] in metres; p = positions, c = RGB bytes per vertex, i = triangles.
-export type ModelData = {
+// A low-poly model with a baked texture atlas, produced by scripts/bake-model.py.
+// size = [width, height, depth] in metres. pos and uv are base64 uint16 arrays (three vertices per
+// triangle, positions relative to min/span), jpeg is the base64 atlas image.
+export type BakedModel = {
   size: number[];
-  p: number[];
-  c: number[];
-  i: number[];
+  min: number[];
+  span: number[];
+  pos: string;
+  uv: string;
+  atlas: number;
+  jpeg: string;
 };

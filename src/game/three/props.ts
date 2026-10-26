@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import type { City, Landmark } from '../cities';
 import type { Entity } from '../engine';
 import { TAXI_PARTS } from './taxiMesh';
-import type { ModelData } from './models/types';
+import type { BakedModel } from './models/types';
+import { bakedGeometry, bakedTexture } from './models/decode';
 import { BOY } from './models/boy';
 import { CITY_GATE } from './models/cityGate';
 import { DACIA } from './models/dacia';
@@ -59,34 +60,16 @@ const sphere = (r: number, color: number | string, x = 0, y = 0, z = 0, seg = 8)
   return m;
 };
 
-// Vertex-coloured models converted by scripts/convert-model.py (base at y=0, centred on x/z).
-const modelMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+// Models baked by scripts/bake-model.py (base at y=0, centred on x/z), each with its own texture atlas.
+const bakedMats = new Map<string, THREE.Material>();
 
-function modelGeo(key: string, data: ModelData, recolor?: (rgb: number[]) => void) {
-  return geo(`model-${key}`, () => {
-    const b = new THREE.BufferGeometry();
-    const col = new Float32Array(data.c.length);
-    const rgb = [0, 0, 0];
-    for (let i = 0; i < data.c.length; i += 3) {
-      rgb[0] = data.c[i] / 255;
-      rgb[1] = data.c[i + 1] / 255;
-      rgb[2] = data.c[i + 2] / 255;
-      recolor?.(rgb);
-      col[i] = rgb[0];
-      col[i + 1] = rgb[1];
-      col[i + 2] = rgb[2];
-    }
-    b.setAttribute('position', new THREE.Float32BufferAttribute(data.p, 3));
-    b.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    b.setIndex(data.i);
-    b.computeVertexNormals();
-    return b;
-  });
-}
-
-// One mesh of a model, scaled so its height (or its longest side, with `length`) fits.
-export function model(key: string, data: ModelData, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (rgb: number[]) => void) {
-  const m = new THREE.Mesh(modelGeo(key, data, recolor), modelMat);
+export function model(key: string, data: BakedModel, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (px: Uint8Array, i: number) => void) {
+  let material = bakedMats.get(key);
+  if (!material) {
+    material = new THREE.MeshLambertMaterial({ map: bakedTexture(data, recolor), side: THREE.DoubleSide });
+    bakedMats.set(key, material);
+  }
+  const m = new THREE.Mesh(geo(`model-${key}`, () => bakedGeometry(data)), material);
   const [w, h, d] = data.size;
   let k = fit.length !== undefined ? fit.length / Math.max(w, d) : (fit.height ?? 1) / h;
   if (fit.maxSide !== undefined) k = Math.min(k, fit.maxSide / Math.max(w, d));
@@ -179,13 +162,15 @@ function taxiMat(part: string, color: number | string) {
 }
 
 // The Dacia is bright green; repaint it cream like a grand taxi.
-const grandTaxiPaint = (rgb: number[]) => {
-  const [r, g, b] = rgb;
+const grandTaxiPaint = (px: Uint8Array, i: number) => {
+  const r = px[i];
+  const g = px[i + 1];
+  const b = px[i + 2];
   if (g > r * 1.25 && g > b * 1.25) {
-    const k = Math.min(1, 0.45 + 0.7 * g);
-    rgb[0] = 0.95 * k;
-    rgb[1] = 0.91 * k;
-    rgb[2] = 0.8 * k;
+    const k = Math.min(1, 0.45 + (0.7 * g) / 255);
+    px[i] = 242 * k;
+    px[i + 1] = 232 * k;
+    px[i + 2] = 204 * k;
   }
 };
 
@@ -337,7 +322,7 @@ export function house(c: City, variant: number, side: number) {
 }
 
 // Real Moroccan houses from the asset pack, picked per city. `front` is the axis the facade faces.
-type HouseModel = { key: string; data: ModelData; front: 1 | -1 };
+type HouseModel = { key: string; data: BakedModel; front: 1 | -1 };
 const POPULAR: HouseModel = { key: 'popular', data: POPULAR_HOUSE, front: 1 };
 const DERBY: HouseModel = { key: 'derby', data: DERBY_HOUSE, front: 1 };
 const OLD: HouseModel = { key: 'old', data: OLD_HOUSE, front: 1 };
@@ -363,6 +348,14 @@ export function modelHouse(c: City, variant: number, side: number) {
   const g = new THREE.Group();
   g.add(m);
   return { obj: g, depth: hm.data.size[2] * m.scale.x };
+}
+
+// Decode a city's textures up front (at the start screen) so nothing stutters mid-run.
+export function warmModels(c: City) {
+  for (const hm of CITY_HOUSES[c.id] ?? []) model(hm.key, hm.data, {});
+  model('dacia', DACIA, {}, grandTaxiPaint);
+  model('police', POLICE_CAR, {});
+  model('boy', BOY, {});
 }
 
 // A boy cheering from the pavement, arms out.
