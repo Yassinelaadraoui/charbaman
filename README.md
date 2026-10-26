@@ -90,15 +90,16 @@ The other models were simplified and their textures baked into small atlases wit
 - "Traditional Moroccan Terracotta Tagine" by laabidate (https://sketchfab.com/laabidate)
 - "Majmar - Stylized Prop Tier I" by Mrigua Mohamed (https://sketchfab.com/mrigua)
 - "fruit market stall" by Isa_van_den_Bosch (https://sketchfab.com/Isa_van_den_Bosch)
-- "Realistic Animated Donkey 3D Model" by WildMesh 3D (https://sketchfab.com/WildMesh_3D), posed with
-  `scripts/skin-to-static.py`
+- "Realistic Animated Donkey 3D Model" by WildMesh 3D (https://sketchfab.com/WildMesh_3D), its `H_Walk` clip baked
+  as 8 poses
 - "Chicken" by MAXDESIGN-3D (https://sketchfab.com/MAXDESIGN)
 - "Bus Stop" by evtushenko (https://sketchfab.com/evtushenko)
 - "Landmine sign" by AbouAli (https://sketchfab.com/abouali), the danger signs before the chase
 - "Indian Old man walking" by anandmohan662 (https://sketchfab.com/anandmohan662)
-- "Pigeon" by LostBoyz2078 (https://sketchfab.com/LostModels2025), licensed **CC-BY-NC-4.0**, and "Seagull" by kenchoo
-  (https://sketchfab.com/kenchoo), licensed **CC-BY-NC-SA-4.0**. These two are non-commercial only, so replace them
-  before selling the game or showing ads.
+- "Spice Market" by zeroual.elmehdi (https://sketchfab.com/zeroual.elmehdi), in the Marrakech and Fes souks
+- "Pigeon" and "Cat Walk" by LostBoyz2078 (https://sketchfab.com/LostModels2025), licensed **CC-BY-NC-4.0**, and
+  "Seagull" by kenchoo (https://sketchfab.com/kenchoo), licensed **CC-BY-NC-SA-4.0**. These three are non-commercial
+  only, so replace them before selling the game or showing ads.
 
 Hero: "Spiderman Multiverse(Textured)(Rigged)" by CAPTAAINR (https://sketchfab.com/CAPTAAINR), CC-BY-4.0,
 converted with `scripts/convert-rigged-hero.py` (repainted orange and silver, emblem removed) and animated in code

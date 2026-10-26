@@ -4,7 +4,7 @@ import { GameState, ROAD_HALF, chaseStart, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE } from './props';
+import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -18,8 +18,8 @@ const STRIPS = 6; // ground L/R, curb L/R, road, centre dash
 // Pavement decor per city; maples line the streets in the cooler north.
 const DECOR: Record<string, string[]> = {
   default: ['palm', 'lamp', 'lamp', 'flag'],
-  marrakech: ['palm', 'stall', 'lamp', 'flag', 'stall'],
-  fes: ['maple', 'lamp', 'stall', 'flag'],
+  marrakech: ['palm', 'stall', 'lamp', 'spice', 'flag', 'stall'],
+  fes: ['maple', 'lamp', 'stall', 'spice', 'flag'],
   tangier: ['maple', 'lamp', 'palm', 'flag'],
 };
 
@@ -331,7 +331,7 @@ export class GameRenderer {
       if (e.kind === 'donkey') {
         o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
         const dk = o.getObjectByName('donkey');
-        if (dk) dk.position.y = Math.abs(Math.sin(t * 7 + e.id)) * 0.05; // plodding
+        if (dk) animate(dk, ((t + e.id * 0.3) / DONKEY_CYCLE.seconds) * DONKEY_CYCLE.poses); // plodding
       }
       const spin = o.getObjectByName('spin');
       if (spin) {
@@ -350,7 +350,10 @@ export class GameRenderer {
         const slotZ = i * DECOR_STEP;
         // Skull-and-crossbones signs line the last stretch before the giant Charba comes rolling.
         const warn = s.mode === 'stage' && slotZ > chaseStart(s) - 70 && slotZ < chaseStart(s) - 4 && ((i + (side > 0 ? 1 : 0)) & 1) === 0;
-        const shelter = !warn && r3 < 0.07;
+        const kinds = DECOR[c.id] ?? DECOR.default;
+        const kind = kinds[Math.floor(r * kinds.length)];
+        const shelter = !warn && r3 < 0.07 && kind !== 'spice';
+        const clear = !shelter && kind !== 'spice'; // room on the pavement for small props
         const variant = Math.floor(r * 6);
         if (hasModelHouses(c) && r2 < 0.6) {
           // Facade on the pavement line, the rest of the house behind it.
@@ -365,27 +368,25 @@ export class GameRenderer {
           h.position.set(side * (ROAD_HALF + 5.4) + bend(d), 0, -d);
         }
         // Now and then a kid cheers you on from the pavement.
-        if (r2 > 0.78 && !shelter) {
+        if (r2 > 0.78 && clear) {
           const b = this.use(`b${i}${side}`, () => spectator(side));
           b.position.set(side * (ROAD_HALF + 0.95) + bend(d - 3), 0, -(d - 3));
           b.getObjectByName('bob')!.position.y = Math.abs(Math.sin(t * 7 + i * 1.7)) * 0.25;
         }
-        const kinds = DECOR[c.id] ?? DECOR.default;
-        const kind = kinds[Math.floor(r * kinds.length)];
         const p = this.use(`d${i}${side}`, () =>
-          kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : flag(),
+          kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : kind === 'spice' ? spiceMarket() : flag(),
         );
-        p.position.set(side * (ROAD_HALF + (kind === 'stall' ? 1.9 : 1.3)) + bend(d), 0, -d);
+        p.position.set(side * (ROAD_HALF + (kind === 'stall' ? 1.9 : kind === 'spice' ? 2.1 : 1.3)) + bend(d), 0, -d);
         if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
         if (kind === 'lamp') p.rotation.y = side > 0 ? 0 : Math.PI; // arm over the road
         // Chickens wander the pavement here and there.
-        if (r2 > 0.62 && r2 < 0.72 && !shelter) {
+        if (r2 > 0.62 && r2 < 0.72 && clear) {
           const ch = this.use(`c${i}${side}`, () => chickens(i));
           ch.position.set(side * (ROAD_HALF + 1.9) + bend(d - 1.5), 0, -(d - 1.5));
-          ch.children.forEach((h, k) => (h.rotation.x = Math.max(0, Math.sin(t * 6 + k * 2 + i)) * 0.6));
+          ch.children.forEach((h, k) => animate(h, t * 6 + k * 3.1 + i, false)); // head down, peck, head up
         }
         // A tea table on the pavement here and there.
-        if (r2 > 0.5 && r2 < 0.62 && !shelter) {
+        if (r2 > 0.5 && r2 < 0.62 && clear) {
           const tt = this.use(`t${i}${side}`, () => teaTable());
           tt.position.set(side * (ROAD_HALF + 2.3) + bend(d + 2.5), 0, -(d + 2.5));
         }
@@ -405,8 +406,16 @@ export class GameRenderer {
           om.position.set(side * (ROAD_HALF + 0.8) + bend(dd), 0, -dd);
           animate(om, (walked / OLD_MAN_CYCLE.seconds) * OLD_MAN_CYCLE.poses);
         }
+        // Now and then a cat pads along the foot of the houses.
+        if (r3 > 0.25 && r3 < 0.32 && clear) {
+          const ct = this.use(`ct${i}${side}`, () => Object.assign(cat(), { userData: { born: t } }));
+          const walked = t - ct.userData.born;
+          const dd = d + 2 - walked * CAT_CYCLE.speed;
+          ct.position.set(side * (ROAD_HALF + 2.7) + bend(dd), 0, -dd);
+          animate(ct, (walked / CAT_CYCLE.seconds) * CAT_CYCLE.poses);
+        }
         // Pigeons bob about on the pavement.
-        if (r3 > 0.15 && r3 < 0.25 && !shelter) {
+        if (r3 > 0.15 && r3 < 0.25 && clear) {
           const pg = this.use(`pg${i}${side}`, () => pigeons(i));
           pg.position.set(side * (ROAD_HALF + 1.7) + bend(d + 4.5), 0, -(d + 4.5));
           pg.children.forEach((h, k) => animate(h, t * 9 + k * 2.7 + i, false)); // a bob every ~0.9 s

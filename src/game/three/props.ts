@@ -8,6 +8,7 @@ import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
 import { BOY } from './models/boy';
 import { BUS_STOP } from './models/busStop';
+import { CAT } from './models/cat';
 import { CHICKEN } from './models/chicken';
 import { DONKEY } from './models/donkey';
 import { FRUIT_STALL } from './models/fruitStall';
@@ -17,6 +18,7 @@ import { OLD_MAN } from './models/oldMan';
 import { PIGEON } from './models/pigeon';
 import { SEAGULL } from './models/seagull';
 import { TAGINE } from './models/tagine';
+import { SPICE_MARKET } from './models/spiceMarket';
 import { JUICE_BOTTLE } from './models/juiceBottle';
 import { LAMPPOST } from './models/lamppost';
 import { MAPLE_TREE } from './models/mapleTree';
@@ -81,7 +83,7 @@ const sphere = (r: number, color: number | string, x = 0, y = 0, z = 0, seg = 8)
 const bakedMats = new Map<string, THREE.Material>();
 
 // People and animals get smooth normals; everything else keeps flat PS1 facets.
-const SMOOTH = new Set(['boy', 'chicken', 'donkey', 'oldman', 'pigeon', 'gull']);
+const SMOOTH = new Set(['boy', 'chicken', 'donkey', 'oldman', 'pigeon', 'gull', 'cat']);
 
 export function model(key: string, data: BakedModel, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (px: Uint8Array, i: number) => void) {
   let material = bakedMats.get(key);
@@ -264,6 +266,9 @@ function scooter() {
   return g;
 }
 
+// The donkey's walk: 8 poses of a 1.07 s cycle.
+export const DONKEY_CYCLE = { poses: 8, seconds: 1.0667 };
+
 function donkeyCart(e: Entity) {
   const g = new THREE.Group();
   const w = e.w * 2;
@@ -430,7 +435,7 @@ export function warmModels(c: City) {
   model('dacia', DACIA, {}, grandTaxiPaint);
   model('police', POLICE_CAR, {});
   model('boy', BOY, {});
-  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman', OLD_MAN], ['pigeon', PIGEON]] as const) model(key, data, {});
+  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['spice', SPICE_MARKET], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman', OLD_MAN], ['pigeon', PIGEON], ['cat', CAT]] as const) model(key, data, {});
   if (c.sea) model('gull', SEAGULL, {});
 }
 
@@ -449,6 +454,14 @@ export const OLD_MAN_CYCLE = { poses: 8, seconds: 1.44, speed: 1.4 };
 export function oldMan() {
   const g = new THREE.Group();
   g.add(model('oldman', OLD_MAN, { height: 1.7 }));
+  return g;
+}
+
+// A street cat padding along the foot of the houses toward you: 8 poses of a 0.77 s walk on the spot.
+export const CAT_CYCLE = { poses: 8, seconds: 0.767, speed: 0.8 };
+export function cat() {
+  const g = new THREE.Group();
+  g.add(model('cat', CAT, { length: 0.62 }));
   return g;
 }
 
@@ -482,7 +495,7 @@ export function dangerSign(side: number) {
   return g;
 }
 
-// A couple of chickens pecking about on the pavement.
+// A couple of chickens pecking about on the pavement (5 poses, played forward and back).
 export function chickens(seed: number) {
   const g = new THREE.Group();
   for (let i = 0; i < 2; i++) {
@@ -490,8 +503,6 @@ export function chickens(seed: number) {
     const holder = new THREE.Group();
     holder.position.set((i - 0.5) * 0.7, 0, i * 0.5);
     holder.rotation.y = seed * 2.3 + i * 2.1;
-    holder.name = 'peck';
-    holder.rotation.order = 'YXZ'; // peck about the chicken's own axis
     holder.add(m);
     g.add(holder);
   }
@@ -553,6 +564,14 @@ export function fruitStall(side: number) {
   const m = model('stall', FRUIT_STALL, { height: 2.3 });
   m.rotation.y = -side * (Math.PI / 2) + Math.PI; // front is -z
   g.add(m);
+  return g;
+}
+
+// A souk spice seller's row of burlap sacks heaped with spice cones, lengthwise along the pavement.
+export function spiceMarket() {
+  const g = new THREE.Group();
+  g.name = 'spice';
+  g.add(model('spice', SPICE_MARKET, { length: 4.5 }));
   return g;
 }
 
