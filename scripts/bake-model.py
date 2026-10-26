@@ -49,6 +49,10 @@ ap.add_argument('--frames', nargs='*', default=[], help='more poses of the same 
                 'order, e.g. from skin-to-static.py at other times) to store as blend shapes')
 ap.add_argument('--lock-xz', action='store_true', help='with --frames: cancel each pose\'s drift along x/z '
                 '(root motion), so a walk stays on the spot')
+ap.add_argument('--outside', action='store_true', help='take colours only from surfaces seen from outside the model '
+                '(for models with interiors, whose seats and inner walls sit just behind the bodywork)')
+ap.add_argument('--denoise', action='store_true', help='colour each texel from the brighter samples among 24 nearby '
+                'ones instead of the nearest one (for scan-like textures whose tiny UV islands bleed dark padding)')
 ap.add_argument('--lift', type=float, default=1.8, help='most the colours may be brightened (1 = never)')
 ap.add_argument('--credit', default='')
 args = ap.parse_args()
@@ -66,7 +70,8 @@ def material_source(mesh):
         if tex is None:
             tex = getattr(mat, 'image', None)
         factor = getattr(mat, 'baseColorFactor', None)
-        if factor is None:
+        if factor is None and tex is None:
+            # main_color is trimesh's stand-in colour; with a texture it is a dull grey that would darken it.
             factor = getattr(mat, 'main_color', None)
         if factor is not None:
             f = np.array(factor[:3], dtype=float)
@@ -77,8 +82,8 @@ def material_source(mesh):
     if tex is None or uv is None or len(uv) != len(mesh.vertices):
         return None, base
     tex = tex.convert('RGB')
-    if max(tex.size) > 1024:
-        tex = tex.resize((1024, 1024))
+    if max(tex.size) > 2048:
+        tex = tex.resize((2048, 2048))
     return np.asarray(tex, dtype=np.float32) / 255.0, base
 
 
@@ -187,6 +192,26 @@ for m, a in zip(meshes, areas):
 pts = np.vstack(pts)
 cols = np.vstack(cols)
 nrms = np.vstack(nrms)
+if args.outside:
+    # Look at the samples from 40 directions on a grid of ~1/300 of the model: a sample counts if, from some
+    # direction, it is (within two cells) the nearest one in its cell.
+    seen = np.zeros(len(pts), bool)
+    cell = float((pts.max(axis=0) - pts.min(axis=0)).max()) / 300
+    k = np.arange(40) + 0.5
+    phi, theta = np.arccos(1 - 2 * k / 40), np.pi * (1 + 5 ** 0.5) * k
+    for d in np.stack([np.cos(theta) * np.sin(phi), np.cos(phi), np.sin(theta) * np.sin(phi)], axis=1):
+        u = np.cross(d, [0, 1, 0] if abs(d[1]) < 0.9 else [1, 0, 0])
+        u /= np.linalg.norm(u)
+        v = np.cross(d, u)
+        ix = np.floor((pts @ u - (pts @ u).min()) / cell).astype(np.int64)
+        iy = np.floor((pts @ v - (pts @ v).min()) / cell).astype(np.int64)
+        key = ix * (iy.max() + 1) + iy
+        depth = pts @ d
+        near = np.full(key.max() + 1, np.inf)
+        np.minimum.at(near, key, depth)
+        seen |= depth <= near[key] + 2 * cell
+    print(f'outside: kept {seen.mean():.0%} of the colour samples')
+    pts, cols, nrms = pts[seen], cols[seen], nrms[seen]
 
 # 2. Simplify the shape (pre-cluster huge meshes so the simplifier stays quick).
 leafT = np.zeros((0, 3, 3))
@@ -298,11 +323,19 @@ for (cx, cy, s), p in zip(cells, pairs):
 tex_pts = np.vstack(tex_pts)
 tex_n = np.vstack(tex_n)
 tex_xy = np.vstack(tex_xy)
-K = 8
+K = 24 if args.denoise else 8
 _, idx = cKDTree(pts).query(tex_pts, k=K)
 facing = np.abs((nrms[idx] * tex_n[:, None, :]).sum(axis=2)) > 0.3
 best = np.where(facing.any(axis=1), facing.argmax(axis=1), 0)
 colour = cols[idx[np.arange(len(idx)), best]]
+if args.denoise:
+    # Rank the facing candidates by brightness and take the one nine tenths of the way up: dark specks
+    # (padding) lose, while genuinely dark areas, where every candidate is dark, stay dark.
+    lum = np.where(facing, cols[idx].sum(axis=2), np.nan)
+    rank = np.argsort(np.where(np.isnan(lum), np.inf, lum), axis=1)
+    n_ok = facing.sum(axis=1)
+    pick = rank[np.arange(len(idx)), np.clip((n_ok * 9) // 10, 0, K - 1)]
+    colour = np.where((n_ok > 0)[:, None], cols[idx[np.arange(len(idx)), pick]], colour)
 # Many of these textures are dark once lit flatly; lift them so the brightest tenth sits near white.
 lum = colour.mean(axis=1)
 k = min(args.lift, 0.85 / max(np.percentile(lum, 90), 1e-3))

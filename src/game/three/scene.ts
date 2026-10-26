@@ -80,6 +80,16 @@ export class GameRenderer {
     const g = gl as WebGLRenderingContext & { getContextAttributes?: () => WebGLContextAttributes | null };
     if (typeof g.getContextAttributes !== 'function') {
       g.getContextAttributes = () => ({ alpha: true, antialias: false, depth: true, stencil: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
+      // expo-gl only takes these two pixelStorei settings and logs a complaint for the rest, which three
+      // sets on every texture upload. None of the others matter for the game's raw-pixel textures.
+      const pixelStorei = gl.pixelStorei.bind(gl);
+      gl.pixelStorei = (pname: number, param: number | boolean) => {
+        if (pname === 0x9240 || pname === 0x0cf5) pixelStorei(pname, param as number); // UNPACK_FLIP_Y_WEBGL, UNPACK_ALIGNMENT
+      };
+      // three asks for float colour buffers whenever it uploads a float texture (the morph-target poses) and
+      // warns when they are missing; it only needs them to draw into float buffers, which the game never does.
+      const getExtension = gl.getExtension.bind(gl);
+      gl.getExtension = ((name: string) => getExtension(name) ?? (name === 'EXT_color_buffer_float' ? {} : null)) as typeof gl.getExtension;
     }
     // expo-gl gives a bare GL context; three only needs a canvas-shaped object around it.
     const canvas = {
