@@ -56,6 +56,18 @@ PepsiCo character, so replace it with an original Charbaman model before publish
   by Goedude (https://sketchfab.com/Goedude), licensed under CC-BY-4.0. Decimated and recoloured per city
   with `scripts/convert-taxi.py`.
 
+The other models were shrunk to vertex-coloured meshes with `scripts/convert-model.py`
+(files in `src/game/three/models/`). All are licensed under CC-BY-4.0 and come from Sketchfab:
+
+- "Hassan II Mosque: Casablanca Architectural", "Casablanca Derby House: Wydad & Raja Culture",
+  "Moroccan Popular House - Casablanca Style", "Old Moroccan Neighborhood House - Detailed Asset" and
+  "morocco house high quality" by abdlilah ben (https://sketchfab.com/m152027350)
+- "Hassan Tower - Rabat, Morocco" by Ysn.Aitaddi (https://sketchfab.com/Ysn.Aitaddi), used as the Marrakech skyline tower
+- "Moroccan City Gate (Bab)", "Moroccan Mixed Facade" and "Moroccan Boy" (Stylized Tier I) by Mrigua Mohamed (https://sketchfab.com/mrigua)
+- "Moroccan culture" by medbunz (https://sketchfab.com/medbunz), city walls
+- "dacia lodgy 2024 moroccan" by abdelghani.0 (https://sketchfab.com/abdelghani.0), repainted as a grand taxi
+- "Moroccan National Police Car Low Poly Game Ready" by FF 3DMODEL (https://sketchfab.com/threedjaj)
+
 ## Code map
 
 - `src/game/engine.ts` game rules: physics, collisions, track generation, chase

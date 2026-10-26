@@ -32,7 +32,11 @@ export function HowToScreen({ onBack }: { onBack: () => void }) {
             </View>
           ))}
           <Text style={styles.credits}>
-            Credits: taxi based on "Hong Kong Taxi" by Goedude (sketchfab.com/Goedude), licensed under CC-BY-4.0.
+            Credits (3D models, all CC-BY-4.0, from Sketchfab): petit taxi based on "Hong Kong Taxi" by Goedude; Hassan II
+            Mosque, Derby House, Popular House, Old Neighborhood House and Morocco House by abdlilah ben; Hassan Tower by
+            Ysn.Aitaddi; City Gate, Mixed Facade and Moroccan Boy by Mrigua Mohamed; city walls from "Moroccan culture" by
+            medbunz; Dacia Lodgy by abdelghani.0; police car by FF 3DMODEL. Models were simplified and recoloured for the
+            game.
           </Text>
         </ScrollView>
       </Screen>

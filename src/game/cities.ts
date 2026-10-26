@@ -1,7 +1,19 @@
 // Each city is a stage, like San Francisco / New York / Texas in the original.
 // Every stage ends with a chase from a giant rolling Charba bottle.
 
-export type Landmark = 'minaret' | 'dome' | 'gate' | 'lighthouse' | 'palm' | 'tower' | 'fortress' | 'kiln';
+export type Landmark =
+  | 'minaret'
+  | 'dome'
+  | 'gate'
+  | 'lighthouse'
+  | 'palm'
+  | 'tower'
+  | 'fortress'
+  | 'kiln'
+  | 'mosque' // Hassan II Mosque model
+  | 'koutoubia' // tower model standing in for the Koutoubia
+  | 'bab' // city gate model
+  | 'ramparts'; // earthen city walls model
 
 export type City = {
   id: string;
@@ -45,7 +57,7 @@ export const CITIES: City[] = [
     curb: ['#FFFFFF', '#E63946'],
     line: '#FFFFFF',
     taxi: '#D62828',
-    landmarks: ['minaret', 'tower', 'dome', 'palm'],
+    landmarks: ['mosque', 'tower', 'dome', 'palm'],
     sea: '#2E86C1',
     length: 1100,
     chaseLength: 380,
@@ -93,7 +105,7 @@ export const CITIES: City[] = [
     curb: ['#F6D7B0', '#8B3A2B'],
     line: '#F6D7B0',
     taxi: '#F4C430',
-    landmarks: ['minaret', 'palm', 'gate', 'palm'],
+    landmarks: ['koutoubia', 'ramparts', 'bab', 'palm'],
     length: 1250,
     chaseLength: 420,
     baseSpeed: 16.5,
@@ -116,7 +128,7 @@ export const CITIES: City[] = [
     curb: ['#1D6FB8', '#2A9D8F'],
     line: '#E9DCC9',
     taxi: '#C1121F',
-    landmarks: ['gate', 'minaret', 'dome', 'minaret'],
+    landmarks: ['bab', 'minaret', 'dome', 'minaret'],
     length: 1350,
     chaseLength: 450,
     baseSpeed: 17.5,

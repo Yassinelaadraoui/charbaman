@@ -2,6 +2,19 @@ import * as THREE from 'three';
 import type { City, Landmark } from '../cities';
 import type { Entity } from '../engine';
 import { TAXI_PARTS } from './taxiMesh';
+import type { ModelData } from './models/types';
+import { BOY } from './models/boy';
+import { CITY_GATE } from './models/cityGate';
+import { DACIA } from './models/dacia';
+import { DERBY_HOUSE } from './models/derbyHouse';
+import { HASSAN_MOSQUE } from './models/hassanMosque';
+import { HASSAN_TOWER } from './models/hassanTower';
+import { MIXED_FACADE } from './models/mixedFacade';
+import { MOROCCO_HOUSE } from './models/moroccoHouse';
+import { OLD_HOUSE } from './models/oldHouse';
+import { POLICE_CAR } from './models/policeCar';
+import { POPULAR_HOUSE } from './models/popularHouse';
+import { RAMPARTS } from './models/ramparts';
 
 // Low-poly, flat-shaded props in the spirit of the PS1 original.
 // Geometries and materials are shared and cached so pooled objects are cheap.
@@ -45,6 +58,41 @@ const sphere = (r: number, color: number | string, x = 0, y = 0, z = 0, seg = 8)
   m.position.set(x, y, z);
   return m;
 };
+
+// Vertex-coloured models converted by scripts/convert-model.py (base at y=0, centred on x/z).
+const modelMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+
+function modelGeo(key: string, data: ModelData, recolor?: (rgb: number[]) => void) {
+  return geo(`model-${key}`, () => {
+    const b = new THREE.BufferGeometry();
+    const col = new Float32Array(data.c.length);
+    const rgb = [0, 0, 0];
+    for (let i = 0; i < data.c.length; i += 3) {
+      rgb[0] = data.c[i] / 255;
+      rgb[1] = data.c[i + 1] / 255;
+      rgb[2] = data.c[i + 2] / 255;
+      recolor?.(rgb);
+      col[i] = rgb[0];
+      col[i + 1] = rgb[1];
+      col[i + 2] = rgb[2];
+    }
+    b.setAttribute('position', new THREE.Float32BufferAttribute(data.p, 3));
+    b.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    b.setIndex(data.i);
+    b.computeVertexNormals();
+    return b;
+  });
+}
+
+// One mesh of a model, scaled so its height (or its longest side, with `length`) fits.
+export function model(key: string, data: ModelData, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (rgb: number[]) => void) {
+  const m = new THREE.Mesh(modelGeo(key, data, recolor), modelMat);
+  const [w, h, d] = data.size;
+  let k = fit.length !== undefined ? fit.length / Math.max(w, d) : (fit.height ?? 1) / h;
+  if (fit.maxSide !== undefined) k = Math.min(k, fit.maxSide / Math.max(w, d));
+  m.scale.setScalar(k);
+  return m;
+}
 
 const ORANGE = 0xff7a00;
 const ORANGE_DEEP = 0xe85d04;
@@ -130,8 +178,36 @@ function taxiMat(part: string, color: number | string) {
   return m;
 }
 
+// The Dacia is bright green; repaint it cream like a grand taxi.
+const grandTaxiPaint = (rgb: number[]) => {
+  const [r, g, b] = rgb;
+  if (g > r * 1.25 && g > b * 1.25) {
+    const k = Math.min(1, 0.45 + 0.7 * g);
+    rgb[0] = 0.95 * k;
+    rgb[1] = 0.91 * k;
+    rgb[2] = 0.8 * k;
+  }
+};
+
+// Traffic mixes petit taxis (most), Dacia grand taxis and the odd police car.
+function car(e: Entity, c: City) {
+  const r = ((Math.imul(e.id + 1, 2654435761) >>> 0) % 100) / 100;
+  if (r < 0.6) return taxi(c);
+  const g = new THREE.Group();
+  if (r < 0.88) {
+    const m = model('dacia', DACIA, { length: 4.0 }, grandTaxiPaint);
+    m.rotation.y = Math.PI; // front is +z; drive away from the camera
+    g.add(m);
+  } else {
+    const m = model('police', POLICE_CAR, { length: 4.0 });
+    m.rotation.y = -Math.PI / 2; // modelled lengthwise along x, nose at -x
+    g.add(m);
+  }
+  return g;
+}
+
 // Petit taxi built from the decimated taxi model; only the body takes the city colour.
-function taxi(_e: Entity, c: City) {
+function taxi(c: City) {
   const g = new THREE.Group();
   for (const [name, part] of Object.entries(TAXI_PARTS)) {
     const geom = geo(`taxi-${name}`, () => {
@@ -227,7 +303,7 @@ export function entityObject(e: Entity, c: City): THREE.Object3D {
     case 'awning':
       return awning(e, c);
     case 'taxi':
-      return taxi(e, c);
+      return car(e, c);
     case 'scooter':
       return scooter();
     case 'donkey':
@@ -257,6 +333,45 @@ export function house(c: City, variant: number, side: number) {
     g.add(win);
   }
   g.add(box(0.06, 2.4, 1.3, c.accent, face, 1.2, (variant % 3) - 1));
+  return g;
+}
+
+// Real Moroccan houses from the asset pack, picked per city. `front` is the axis the facade faces.
+type HouseModel = { key: string; data: ModelData; front: 1 | -1 };
+const POPULAR: HouseModel = { key: 'popular', data: POPULAR_HOUSE, front: 1 };
+const DERBY: HouseModel = { key: 'derby', data: DERBY_HOUSE, front: 1 };
+const OLD: HouseModel = { key: 'old', data: OLD_HOUSE, front: 1 };
+const MIXED: HouseModel = { key: 'mixed', data: MIXED_FACADE, front: -1 };
+const RIAD: HouseModel = { key: 'riad', data: MOROCCO_HOUSE, front: 1 };
+const CITY_HOUSES: Record<string, HouseModel[]> = {
+  casablanca: [POPULAR, DERBY, POPULAR],
+  safi: [OLD, MIXED],
+  marrakech: [OLD, RIAD, MIXED],
+  fes: [OLD, MIXED, RIAD],
+  tangier: [POPULAR, RIAD],
+};
+
+export const hasModelHouses = (c: City) => !!CITY_HOUSES[c.id];
+
+// Returns the house and how deep it is, so the scene can put its facade on the pavement line.
+export function modelHouse(c: City, variant: number, side: number) {
+  const list = CITY_HOUSES[c.id] ?? [POPULAR];
+  const hm = list[variant % list.length];
+  const m = model(hm.key, hm.data, { height: 7.5 + (variant % 3) * 0.8, maxSide: 7.5 });
+  // Rotate so the facade looks across the street (+x for the left side, -x for the right side).
+  m.rotation.y = -side * (Math.PI / 2) + (hm.front < 0 ? Math.PI : 0);
+  const g = new THREE.Group();
+  g.add(m);
+  return { obj: g, depth: hm.data.size[2] * m.scale.x };
+}
+
+// A boy cheering from the pavement, arms out.
+export function spectator(side: number) {
+  const g = new THREE.Group();
+  const m = model('boy', BOY, { height: 1.35 });
+  m.rotation.y = -side * (Math.PI / 2);
+  m.name = 'bob';
+  g.add(m);
   return g;
 }
 
@@ -351,6 +466,21 @@ export function landmark(kind: Landmark, c: City) {
       }
       g.add(cyl(0.8, 1, 8, 6, 0x7b3f1d, 0, 10));
       break;
+    case 'mosque':
+      g.add(model('mosque', HASSAN_MOSQUE, { height: 62 }));
+      break;
+    case 'koutoubia':
+      g.add(model('koutoubia', HASSAN_TOWER, { height: 44 }));
+      break;
+    case 'bab':
+      g.add(model('bab', CITY_GATE, { height: 22 }));
+      break;
+    case 'ramparts': {
+      const m = model('ramparts', RAMPARTS, { height: 12 });
+      m.rotation.y = Math.PI / 2; // the long side runs along the horizon
+      g.add(m);
+      break;
+    }
     case 'tower':
       g.add(box(12, 40, 12, col, 0, 20));
       g.add(box(12.4, 1.2, 12.4, c.accent, 0, 40));

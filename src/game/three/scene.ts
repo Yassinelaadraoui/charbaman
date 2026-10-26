@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { City } from '../cities';
 import { GameState, ROAD_HALF, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
-import { entityObject, flag, giantBottle, house, lamp, landmark, palm, shadeHex, mat } from './props';
+import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, mat, modelHouse, palm, shadeHex, spectator } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -157,7 +157,8 @@ export class GameRenderer {
     }
     c.landmarks.forEach((lm, j) => {
       const l = landmark(lm, c);
-      l.position.set(-120 + j * 80 + hash(c.seed + j) * 20, 0, -135 - (j % 2) * 15);
+      // The first landmark is the city's signature one, so it stands straight ahead.
+      l.position.set([0, -80, 80, -160][j % 4] + hash(c.seed + j) * 20, 0, -135 - (j % 2) * 15);
       this.skyline.add(l);
     });
     // The skyline sits beyond the fog; it is already painted in hazy colours, so let it ignore fog.
@@ -265,8 +266,26 @@ export class GameRenderer {
       const d = i * DECOR_STEP - s.z;
       for (const side of [-1, 1]) {
         const r = hash(i * 2 + (side > 0 ? 1 : 0));
-        const h = this.use(`h${i}${side}`, () => house(c, Math.floor(r * 6), side));
-        h.position.set(side * (ROAD_HALF + 5.4) + bend(d), 0, -d);
+        const r2 = hash(i * 7 + (side > 0 ? 3 : 5));
+        const variant = Math.floor(r * 6);
+        if (hasModelHouses(c) && r2 < 0.6) {
+          // Facade on the pavement line, the rest of the house behind it.
+          const h = this.use(`m${i}${side}`, () => {
+            const mh = modelHouse(c, variant, side);
+            mh.obj.userData.depth = mh.depth;
+            return mh.obj;
+          });
+          h.position.set(side * (ROAD_HALF + 3.4 + h.userData.depth / 2) + bend(d), 0, -d);
+        } else {
+          const h = this.use(`h${i}${side}`, () => house(c, variant, side));
+          h.position.set(side * (ROAD_HALF + 5.4) + bend(d), 0, -d);
+        }
+        // Now and then a kid cheers you on from the pavement.
+        if (r2 > 0.78) {
+          const b = this.use(`b${i}${side}`, () => spectator(side));
+          b.position.set(side * (ROAD_HALF + 0.95) + bend(d - 3), 0, -(d - 3));
+          b.getObjectByName('bob')!.position.y = Math.abs(Math.sin(t * 7 + i * 1.7)) * 0.25;
+        }
         const kinds = c.id === 'marrakech' ? ['palm', 'palm', 'lamp', 'flag'] : ['palm', 'lamp', 'lamp', 'flag'];
         const kind = kinds[Math.floor(r * kinds.length)];
         const p = this.use(`d${i}${side}`, () => (kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : flag()));
