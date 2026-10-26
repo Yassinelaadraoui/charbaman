@@ -30,7 +30,7 @@ const uint16 = (s: string) => {
 
 // Normals for unindexed triangles: one per triangle (flat, the PS1 look), or averaged over every corner
 // that shares a position (smooth, for people and animals). `q` holds the quantised positions used as keys.
-function normals(pos: Float32Array, q: Uint16Array, smooth: boolean) {
+export function normals(pos: Float32Array, q: Uint16Array, smooth: boolean) {
   const n = new Float32Array(pos.length);
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();

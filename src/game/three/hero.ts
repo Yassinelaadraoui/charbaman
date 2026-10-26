@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RIGGED_HERO } from './heroRigged';
-import { base64ToBytes, bakedTexture } from './models/decode';
+import { base64ToBytes, bakedTexture, normals } from './models/decode';
 import { tajinePickup } from './props';
 
 export type HeroRig = {
@@ -19,28 +19,35 @@ type SkinDriver = {
   baseY: number; // hip height at rest
   bones: { proxy: THREE.Object3D; bone: THREE.Bone; rest: THREE.Quaternion; w: THREE.Quaternion; wInv: THREE.Quaternion; armRest: number }[];
   head: THREE.Bone;
+  run?: RunClip;
+  runWeight: number; // 0 = code poses only, 1 = the running clip only
 };
 
-const BONE_OF: Record<string, string> = {
-  pelvis: 'Bip001_02',
-  torso: 'Bip001-Spine_04',
-  neck: 'Bip001-Neck_07',
-  head: 'Bip001-Head_08',
-  upperArmL: 'Bip001-R-UpperArm_025',
-  forearmL: 'Bip001-R-Forearm_026',
-  handL: 'Bip001-R-Hand_027',
-  upperArmR: 'Bip001-L-UpperArm_010',
-  forearmR: 'Bip001-L-Forearm_011',
-  handR: 'Bip001-L-Hand_012',
-  thighL: 'Bip001-R-Thigh_051',
-  shinL: 'Bip001-R-Calf_052',
-  footL: 'Bip001-R-Foot_053',
-  thighR: 'Bip001-L-Thigh_046',
-  shinR: 'Bip001-L-Calf_047',
-  footR: 'Bip001-L-Foot_048',
+// The model's own running loop, one stride per 2 pi of runPhase.
+type RunClip = {
+  bones: { bone: THREE.Bone; rest: THREE.Quaternion; frames: THREE.Quaternion[] }[];
+  moved: { bone: THREE.Bone; rest: THREE.Vector3; frames: THREE.Vector3[] }[];
 };
-// The old rig's arms were modelled in a T-pose; this model's arms already hang about 66 degrees down.
-const ARM_REST = 1.15;
+
+// Stand-in joint -> bone. The stand-ins' left is the model's right (the old part rig was mirrored).
+const BONE_OF: Record<string, string> = {
+  pelvis: 'bip_01',
+  torso: 'bip Spine_03',
+  neck: 'bip Neck_05',
+  head: 'bip Head_06',
+  upperArmL: 'bip R UpperArm_019',
+  forearmL: 'bip R Forearm_020',
+  handL: 'bip R Hand_021',
+  upperArmR: 'bip L UpperArm_09',
+  forearmR: 'bip L Forearm_010',
+  handR: 'bip L Hand_011',
+  thighL: 'bip R Thigh_032',
+  shinL: 'bip R Calf_033',
+  footL: 'bip R Foot_034',
+  thighR: 'bip L Thigh_027',
+  shinR: 'bip L Calf_028',
+  footR: 'bip L Foot_029',
+};
 const HERO_HEIGHT = 1.8;
 
 function uint16(s: string) {
@@ -68,7 +75,8 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
   geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(Array.from(ji), 4));
   geo.setAttribute('skinWeight', new THREE.BufferAttribute(w, 4));
   geo.setIndex(new THREE.BufferAttribute(uint16(d.index), 1));
-  geo.computeVertexNormals();
+  // Every triangle has its own corners (its own atlas patch), so average normals by position: smooth skin.
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals(pos, q, true), 3));
 
   const bones = d.bones.map((b) => {
     const bone = new THREE.Bone();
@@ -78,14 +86,16 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
     bone.scale.fromArray(b.s);
     return bone;
   });
-  // The model faces +x; turn it to face +z like the old rig, and size it.
+  // Turn the model to face +z like the old rig, and size it.
+  const yaw = d.yaw ?? Math.PI / 2; // the first hero model faced +x
+  const armRestAngle = d.armRest ?? 1.15; // and its arms hung about 66 degrees below a T-pose
   const model = new THREE.Group();
-  model.rotation.y = -Math.PI / 2;
+  model.rotation.y = -yaw;
   model.scale.setScalar(HERO_HEIGHT / (d.restMax[1] - d.restMin[1]));
   d.bones.forEach((b, i) => (b.parent >= 0 ? bones[b.parent] : model).add(bones[i]));
   const inverses = [];
   for (let i = 0; i < bones.length; i++) inverses.push(new THREE.Matrix4().fromArray(d.ibm, i * 16));
-  const map = bakedTexture({ size: [], min: [], span: [], pos: '', uv: '', atlas: 1024, jpeg: d.jpeg });
+  const map = bakedTexture({ size: [], min: [], span: [], pos: '', uv: '', atlas: d.atlas ?? 1024, jpeg: d.jpeg });
   const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshLambertMaterial({ map }));
   mesh.frustumCulled = false;
   model.add(mesh);
@@ -93,7 +103,7 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
   body.add(model);
 
   // Rest orientation of each bone in the old rig's frame (model facing +z).
-  const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+  const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
   const restWorld: THREE.Quaternion[] = [];
   d.bones.forEach((b, i) => {
     const local = new THREE.Quaternion().fromArray(b.q);
@@ -106,7 +116,7 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
     const proxy = new THREE.Object3D();
     joints[joint] = proxy;
     const wq = restWorld[i];
-    const armRest = joint === 'upperArmL' ? ARM_REST : joint === 'upperArmR' ? -ARM_REST : 0;
+    const armRest = joint === 'upperArmL' ? armRestAngle : joint === 'upperArmR' ? -armRestAngle : 0;
     driven.push({ proxy, bone: bones[i], rest: bones[i].quaternion.clone(), w: wq.clone(), wInv: wq.clone().invert(), armRest });
   }
   const hip = d.bones.findIndex((b) => b.name === BONE_OF.pelvis);
@@ -114,15 +124,39 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
   const hipPos = new THREE.Vector3();
   bones[hip].getWorldPosition(hipPos);
   joints.pelvis.position.y = hipPos.y;
-  return { joints, skin: { model, baseY: hipPos.y, bones: driven, head: bones[d.bones.findIndex((b) => b.name === BONE_OF.head)] } };
+  let run: RunClip | undefined;
+  if (d.run) {
+    const r = d.run;
+    run = {
+      bones: r.bones.map((bi, k) => ({
+        bone: bones[bi],
+        rest: bones[bi].quaternion.clone(),
+        frames: r.q.map((f) => new THREE.Quaternion(f[k * 4], f[k * 4 + 1], f[k * 4 + 2], f[k * 4 + 3])),
+      })),
+      moved: r.tBones.map((bi, k) => ({
+        bone: bones[bi],
+        rest: bones[bi].position.clone(),
+        frames: r.t.map((f) => new THREE.Vector3(f[k * 3], f[k * 3 + 1], f[k * 3 + 2])),
+      })),
+    };
+  }
+  const head = bones[d.bones.findIndex((b) => b.name === BONE_OF.head)];
+  return { joints, skin: { model, baseY: hipPos.y, bones: driven, head, run, runWeight: 0 } };
 }
 
 const tmpQ = new THREE.Quaternion();
 const tmpE = new THREE.Euler();
 const tmpV = new THREE.Vector3();
 
-function driveSkin(rig: HeroRig) {
+const clipQ = new THREE.Quaternion();
+const clipV = new THREE.Vector3();
+
+function driveSkin(rig: HeroRig, runPhase: number) {
   const k = rig.skin!;
+  const run = k.run;
+  const w = run ? k.runWeight : 0;
+  // Bones the code poses leave alone go back to rest before the clip is blended in.
+  if (run) for (const b of run.bones) b.bone.quaternion.copy(b.rest);
   for (const b of k.bones) {
     tmpE.copy(b.proxy.rotation);
     tmpE.z -= b.armRest;
@@ -130,7 +164,23 @@ function driveSkin(rig: HeroRig) {
     // Rotate about the rest-pose axes of the old rig: rest * (W^-1 * D * W).
     b.bone.quaternion.copy(b.rest).multiply(b.wInv.clone().multiply(tmpQ).multiply(b.w));
   }
-  k.model.position.y = rig.joints.pelvis.position.y - k.baseY;
+  if (run && w > 0.001) {
+    const n = run.bones[0].frames.length;
+    const f = ((((runPhase / (Math.PI * 2)) * n) % n) + n) % n;
+    const a = Math.floor(f);
+    const b = (a + 1) % n;
+    const t = f - a;
+    for (const r of run.bones) {
+      clipQ.slerpQuaternions(r.frames[a], r.frames[b], t);
+      r.bone.quaternion.slerp(clipQ, w);
+    }
+    for (const r of run.moved) {
+      clipV.lerpVectors(r.frames[a], r.frames[b], t);
+      r.bone.position.lerpVectors(r.rest, clipV, w);
+    }
+  } else if (run) for (const r of run.moved) r.bone.position.copy(r.rest);
+  // The clip bobs the hips itself, so the code poses' hip height fades out as it takes over.
+  k.model.position.y = (rig.joints.pelvis.position.y - k.baseY) * (1 - w);
   // The tajine sits on the head wherever the head goes.
   k.model.updateMatrixWorld(true);
   k.head.getWorldPosition(tmpV);
@@ -242,5 +292,10 @@ export function poseHero(rig: HeroRig, p: Pose) {
   rig.tajine.visible = p.tajine;
   rig.board.visible = p.skating;
   rig.body.position.y = p.skating ? 0.15 : 0;
-  if (rig.skin) driveSkin(rig);
+  if (rig.skin) {
+    // Plain running plays the model's own run; jumps, slides and skating use the code poses. Ease between.
+    const target = p.airborne || p.sliding || p.skating ? 0 : 1;
+    rig.skin.runWeight += (target - rig.skin.runWeight) * 0.25;
+    driveSkin(rig, p.runPhase);
+  }
 }

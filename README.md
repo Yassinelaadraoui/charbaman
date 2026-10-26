@@ -36,16 +36,20 @@ keeps working and the leaderboard shows scores saved on the phone.
 
 ## 3D hero model
 
-The hero is a rigged, skinned model (`src/game/three/heroRigged.ts`). The run, jump, slide and skateboard poses
-are written in code in `src/game/three/hero.ts`, which rotates the skeleton's bones every frame, so any rigged
-model works without animation clips. To swap in another rigged GLB (ideally a Biped or Mixamo skeleton, under
-about 10k triangles):
+The hero is a rigged, skinned low-poly runner (`src/game/three/heroRigged.ts`) wearing the orange Charbaman suit.
+Plain running plays the model's own 20-frame run loop. Jumps, slides and the skateboard are posed in code in
+`src/game/three/hero.ts`, which rotates the bones every frame, and the two blend into each other.
+
+`scripts/reskin-hero.py` builds the module from a rigged body in a T-pose, its running clip and an earlier hero
+module whose suit it transfers onto the new body, body part by body part:
 
 ```bash
-python3 scripts/convert-rigged-hero.py path/to/hero.glb src/game/three/heroRigged.ts --credit "..."
+git show 32989c2:src/game/three/heroRigged.ts > /tmp/suit.ts   # the hero that first wore the suit
+python3 scripts/reskin-hero.py body.glb run.glb /tmp/suit.ts src/game/three/heroRigged.ts --credit "..."
 ```
 
-Then check the bone names in `BONE_OF` in `hero.ts` match the new skeleton.
+The suit itself was painted by `scripts/convert-rigged-hero.py` on the "Spiderman Multiverse" model. With a different
+skeleton, check the bone names in `BONE_OF` in `hero.ts`.
 
 ## Animated props
 
@@ -63,6 +67,11 @@ python3 scripts/bake-model.py /tmp/walk0.glb src/game/three/models/oldMan.ts OLD
 don't slide (`OLD_MAN_CYCLE` in `props.ts`).
 
 ## Credits
+
+- Hero: "Casual LowPoly Male Rig T-pose" and "Male Running (20 frames loop)" by Denys Almaral
+  (https://sketchfab.com/denysalmaral), Sketchfab Standard licence (fine inside the game, not to be shared as
+  separate model files). The suit comes from "Spiderman Multiverse(Textured)(Rigged)" by CAPTAAINR
+  (https://sketchfab.com/CAPTAAINR), CC-BY-4.0, repainted.
 
 - Taxi: "Hong Kong Taxi" (https://sketchfab.com/3d-models/hong-kong-taxi-b4e5ecc01a6e41e9a383302e728c8535)
   by Goedude (https://sketchfab.com/Goedude), licensed under CC-BY-4.0. Decimated and recoloured per city
@@ -101,10 +110,8 @@ The other models were simplified and their textures baked into small atlases wit
   "Seagull" by kenchoo (https://sketchfab.com/kenchoo), licensed **CC-BY-NC-SA-4.0**. These three are non-commercial
   only, so replace them before selling the game or showing ads.
 
-Hero: "Spiderman Multiverse(Textured)(Rigged)" by CAPTAAINR (https://sketchfab.com/CAPTAAINR), CC-BY-4.0,
-converted with `scripts/convert-rigged-hero.py` (repainted orange and silver, emblem removed) and animated in code
-(`src/game/three/hero.ts`). It is still a Spider-Man fan model, so replace it with an original character before a
-store release.
+The hero's body and run are original models now, but the suit's paint (the mask and its seams) was transferred from
+a Spider-Man fan model, so repaint the suit with an original design before a store release.
 
 Sound effects and particle sprites: Kenney (https://kenney.nl) Impact Sounds, Interface Sounds, RPG Audio and
 Particle Pack, CC0. Converted to m4a in `assets/sounds/` and to `src/game/three/particleTextures.ts`.
