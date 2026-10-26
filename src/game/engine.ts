@@ -16,6 +16,7 @@ const ENDLESS_CITY_LEN = 900;
 
 export type EntityKind =
   | 'can'
+  | 'cash'
   | 'crate'
   | 'awning'
   | 'taxi'
@@ -46,6 +47,7 @@ export type Phase = 'ready' | 'run' | 'chase' | 'clear' | 'over';
 export type GameEvent = {
   type:
     | 'can'
+    | 'cash'
     | 'hit'
     | 'life'
     | 'lifeLost'
@@ -72,6 +74,7 @@ export type GameState = {
   health: number;
   lives: number;
   cans: number;
+  cash: number; // 200 dirham notes picked up
   lifeCans: number;
   score: number;
   time: number;
@@ -137,6 +140,7 @@ export function createGame(mode: GameMode, cityIndex = 0): GameState {
     health: MAX_HEALTH,
     lives: 3,
     cans: 0,
+    cash: 0,
     lifeCans: 0,
     score: 0,
     time: 0,
@@ -181,7 +185,9 @@ function add(s: GameState, e: Partial<Entity> & { kind: EntityKind; z: number })
 function canLine(s: GameState, z: number, x0: number, x1: number, n: number, y = 0.5) {
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0 : i / (n - 1);
-    add(s, { kind: 'can', z: z + i * 2.4, x: x0 + (x1 - x0) * t, y, w: 0.45, h: 0.7, depth: 1.2 });
+    // Now and then the last one is a 200 dirham note instead.
+    const kind = i === n - 1 && n > 2 && rand(s) < 0.12 ? 'cash' : 'can';
+    add(s, { kind, z: z + i * 2.4, x: x0 + (x1 - x0) * t, y, w: 0.45, h: 0.7, depth: 1.2 });
   }
 }
 
@@ -298,7 +304,7 @@ function respawn(s: GameState) {
   s.tajine = 0;
   s.skate = 0;
   for (const e of s.entities) {
-    if (e.z > s.z - 2 && e.kind !== 'can') e.done = false;
+    if (e.z > s.z - 2 && e.kind !== 'can' && e.kind !== 'cash') e.done = false;
   }
 }
 
@@ -412,6 +418,13 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           }
         }
         break;
+      case 'cash':
+        if (vertical || Math.abs(s.y - e.y) < 1.2) {
+          e.done = true;
+          s.cash += 1;
+          s.events.push({ type: 'cash', x: e.x, z: e.z });
+        }
+        break;
       case 'checkpoint':
         e.done = true;
         s.checkpointZ = e.z;
@@ -472,7 +485,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
 }
 
 export function scoreOf(s: GameState, cleared: boolean) {
-  const base = Math.floor(s.z) + s.cans * 50;
+  const base = Math.floor(s.z) + s.cans * 50 + s.cash * 500;
   return cleared ? base + s.lives * 1000 + s.health * 250 : base;
 }
 

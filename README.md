@@ -67,6 +67,16 @@ The other models were simplified and their textures baked into small atlases wit
 - "Moroccan culture" by medbunz (https://sketchfab.com/medbunz), city walls
 - "dacia lodgy 2024 moroccan" by abdelghani.0 (https://sketchfab.com/abdelghani.0), repainted as a grand taxi
 - "Moroccan National Police Car Low Poly Game Ready" by FF 3DMODEL (https://sketchfab.com/threedjaj)
+- "Stylized Palm Tree" by KrazzyElf (https://sketchfab.com/KrazzyElf)
+- "Maple tree" by atrodler (https://sketchfab.com/atrodler)
+- "Zoonomaly - Lampost Bulb" by Haggy the model ripper (https://sketchfab.com/ashrafmanir). The uploader's name suggests it was
+  ripped from the game Zoonomaly, so replace it before a store release.
+- "A Moroccan style table" by A9908244 (https://sketchfab.com/A9908244)
+- "Low Poly Apple box" by Pixxellab (https://sketchfab.com/Pixxellab), recoloured
+- "A bottle juice" by Spacesea (https://sketchfab.com/-Spacesea-), used as the Charba bottle
+
+The 200 dirham note is "200Dhs Moroccan money" by lordmehemedz (https://sketchfab.com/lordmehemedz), under the
+Sketchfab Standard license (allowed inside a game, not for redistribution as a model).
 
 ## Code map
 

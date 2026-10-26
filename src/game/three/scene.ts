@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { City } from '../cities';
 import { GameState, ROAD_HALF, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, mat, modelHouse, palm, shadeHex, spectator, warmModels } from './props';
+import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -12,6 +12,14 @@ const DECOR_D = 80;
 const SEG = 3;
 const DECOR_STEP = 7;
 const STRIPS = 6; // ground L/R, curb L/R, road, centre dash
+
+// Pavement decor per city; maples line the streets in the cooler north.
+const DECOR: Record<string, string[]> = {
+  default: ['palm', 'lamp', 'lamp', 'flag'],
+  marrakech: ['palm', 'palm', 'lamp', 'flag'],
+  fes: ['maple', 'lamp', 'maple', 'flag'],
+  tangier: ['maple', 'lamp', 'palm', 'flag'],
+};
 
 const curvature = (z: number) => 0.0028 * Math.sin(z / 150 + 1.3) + 0.0013 * Math.sin(z / 61);
 const curveIntegral = (z: number) => -0.0028 * 150 * Math.cos(z / 150 + 1.3) - 0.0013 * 61 * Math.cos(z / 61);
@@ -249,10 +257,10 @@ export class GameRenderer {
     for (const e of s.entities) {
       const d = e.z - s.z;
       if (d < -camBack || d > MAX_D) continue;
-      if (e.done && (e.kind === 'can' || e.kind === 'skate' || e.kind === 'tajine')) continue;
+      if (e.done && (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine')) continue;
       const o = this.use(`e${e.id}`, () => entityObject(e, c));
-      o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
-      if (e.kind === 'can' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
+      o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
+      if (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
       if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? -0.5 : 0.5;
       if (e.kind === 'donkey') o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
       const spin = o.getObjectByName('spin');
@@ -287,11 +295,17 @@ export class GameRenderer {
           b.position.set(side * (ROAD_HALF + 0.95) + bend(d - 3), 0, -(d - 3));
           b.getObjectByName('bob')!.position.y = Math.abs(Math.sin(t * 7 + i * 1.7)) * 0.25;
         }
-        const kinds = c.id === 'marrakech' ? ['palm', 'palm', 'lamp', 'flag'] : ['palm', 'lamp', 'lamp', 'flag'];
+        const kinds = DECOR[c.id] ?? DECOR.default;
         const kind = kinds[Math.floor(r * kinds.length)];
-        const p = this.use(`d${i}${side}`, () => (kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : flag()));
+        const p = this.use(`d${i}${side}`, () => (kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : flag()));
         p.position.set(side * (ROAD_HALF + 1.3) + bend(d), 0, -d);
         if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
+        if (kind === 'lamp') p.rotation.y = side > 0 ? 0 : Math.PI; // arm over the road
+        // A tea table on the pavement here and there.
+        if (r2 > 0.5 && r2 < 0.62) {
+          const tt = this.use(`t${i}${side}`, () => teaTable());
+          tt.position.set(side * (ROAD_HALF + 2.3) + bend(d + 2.5), 0, -(d + 2.5));
+        }
       }
     }
 
@@ -299,7 +313,7 @@ export class GameRenderer {
     this.giant.visible = chase;
     if (chase) {
       const gap = 2.4 + s.chaseGap * 0.25;
-      this.giant.position.set(0, 1.21, gap);
+      this.giant.position.set(0, this.giant.userData.radius, gap);
       this.giant.getObjectByName('spin')!.rotation.x = -t * 8;
     }
 

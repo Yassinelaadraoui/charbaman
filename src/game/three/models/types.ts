@@ -9,4 +9,5 @@ export type BakedModel = {
   uv: string;
   atlas: number;
   jpeg: string;
+  alpha?: string; // optional greyscale JPEG used as a cut-out mask
 };

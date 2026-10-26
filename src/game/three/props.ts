@@ -4,7 +4,14 @@ import type { Entity } from '../engine';
 import { TAXI_PARTS } from './taxiMesh';
 import type { BakedModel } from './models/types';
 import { bakedGeometry, bakedTexture } from './models/decode';
+import { APPLE_BOX } from './models/appleBox';
+import { BANKNOTE } from './models/banknote';
 import { BOY } from './models/boy';
+import { JUICE_BOTTLE } from './models/juiceBottle';
+import { LAMPPOST } from './models/lamppost';
+import { MAPLE_TREE } from './models/mapleTree';
+import { PALM_TREE } from './models/palmTree';
+import { TEA_TABLE } from './models/teaTable';
 import { CITY_GATE } from './models/cityGate';
 import { DACIA } from './models/dacia';
 import { DERBY_HOUSE } from './models/derbyHouse';
@@ -66,7 +73,8 @@ const bakedMats = new Map<string, THREE.Material>();
 export function model(key: string, data: BakedModel, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (px: Uint8Array, i: number) => void) {
   let material = bakedMats.get(key);
   if (!material) {
-    material = new THREE.MeshLambertMaterial({ map: bakedTexture(data, recolor), side: THREE.DoubleSide });
+    // Cut-out textures (palm fronds) use alpha testing: no sorting, cheap on phones.
+    material = new THREE.MeshLambertMaterial({ map: bakedTexture(data, recolor), side: THREE.DoubleSide, alphaTest: data.alpha ? 0.5 : 0 });
     bakedMats.set(key, material);
   }
   const m = new THREE.Mesh(geo(`model-${key}`, () => bakedGeometry(data)), material);
@@ -278,13 +286,45 @@ function skatePickup() {
   return g;
 }
 
+// The collectible Charba: an orange juice bottle.
+function juice() {
+  const g = new THREE.Group();
+  g.add(model('juice', JUICE_BOTTLE, { height: 0.8 }));
+  return g;
+}
+
+// A rare 200 dirham note bundle.
+function cash() {
+  const g = new THREE.Group();
+  const m = model('cash', BANKNOTE, { length: 0.9 });
+  m.rotation.x = -0.5; // tilted toward the camera so the note shows
+  g.add(m);
+  return g;
+}
+
+// Jump obstacle: a row of apple crates across the street.
+function appleCrates(e: Entity) {
+  const g = new THREE.Group();
+  const n = Math.max(1, Math.round(e.w / 1.5));
+  const cw = (e.w * 2) / n;
+  for (let i = 0; i < n; i++) {
+    const m = model('apples', APPLE_BOX, { length: cw * 0.98 });
+    m.position.x = -e.w + cw * (i + 0.5);
+    if (i % 2) m.rotation.y = Math.PI;
+    g.add(m);
+  }
+  return g;
+}
+
 export function entityObject(e: Entity, c: City): THREE.Object3D {
   if (e.kind === 'crate' && c.id === 'safi') return pots(e);
   switch (e.kind) {
     case 'can':
-      return charbaBottle(1.25);
+      return juice();
+    case 'cash':
+      return cash();
     case 'crate':
-      return crates(e);
+      return appleCrates(e);
     case 'awning':
       return awning(e, c);
     case 'taxi':
@@ -356,6 +396,7 @@ export function warmModels(c: City) {
   model('dacia', DACIA, {}, grandTaxiPaint);
   model('police', POLICE_CAR, {});
   model('boy', BOY, {});
+  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['lamppost', LAMPPOST], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE]] as const) model(key, data, {});
 }
 
 // A boy cheering from the pavement, arms out.
@@ -370,28 +411,37 @@ export function spectator(side: number) {
 
 export function palm() {
   const g = new THREE.Group();
-  const trunk = cyl(0.12, 0.18, 5.4, 6, 0x8b5e34, 0, 2.7);
-  trunk.rotation.z = 0.06;
-  g.add(trunk);
-  for (let i = 0; i < 6; i++) {
-    const leaf = box(0.35, 0.06, 2.0, i % 2 ? 0x2d6a4f : 0x40916c, 0, 5.3, 0);
-    leaf.geometry = geo('leaf', () => {
-      const b = new THREE.BoxGeometry(0.35, 0.06, 2.0);
-      b.translate(0, 0, 1.0);
-      return b;
-    });
-    leaf.rotation.set(0.45, (i / 6) * Math.PI * 2, 0, 'YXZ');
-    g.add(leaf);
-  }
+  const m = model('palm', PALM_TREE, { height: 5.6 });
+  g.add(m);
   return g;
 }
 
+// Street lamp: the pole stands on the pavement and the arm reaches over the road (-x before turning).
 export function lamp() {
   const g = new THREE.Group();
-  g.add(cyl(0.06, 0.08, 3.6, 6, 0x3d2b1f, 0, 1.8));
-  const lantern = new THREE.Mesh(geo('lantern', () => new THREE.BoxGeometry(0.4, 0.55, 0.4)), mat(GOLD, { emissive: true }));
-  lantern.position.y = 3.8;
-  g.add(lantern);
+  const m = model('lamppost', LAMPPOST, { height: 4.6 });
+  const k = m.scale.x;
+  m.position.x = -1.36 * k; // pole base to the origin
+  g.add(m);
+  const bulb = new THREE.Mesh(geo('bulb', () => new THREE.SphereGeometry(0.2, 8, 6)), mat(0xfff1b8, { emissive: true }));
+  bulb.position.set((-1.58 - 1.36) * k, 9.45 * k, 0);
+  g.add(bulb);
+  return g;
+}
+
+export function maple() {
+  const g = new THREE.Group();
+  g.add(model('maple', MAPLE_TREE, { height: 6.5 }));
+  return g;
+}
+
+// A carved Moroccan tea table on the pavement, with a glass of Charba on it.
+export function teaTable() {
+  const g = new THREE.Group();
+  g.add(model('teatable', TEA_TABLE, { height: 0.6 }));
+  const b = model('juice', JUICE_BOTTLE, { height: 0.3 });
+  b.position.set(0.1, 0.6, 0);
+  g.add(b);
   return g;
 }
 
@@ -493,19 +543,15 @@ export function giantBottle() {
   const g = new THREE.Group();
   const roll = new THREE.Group();
   roll.name = 'roll';
-  const body = cyl(2.2, 2.2, 6, 16, ORANGE, 0, 0);
-  roll.add(body);
-  for (const y of [-1.2, 1.2]) roll.add(cyl(2.25, 2.25, 0.8, 16, WHITE, 0, y));
-  roll.add(cyl(2.25, 2.25, 0.4, 16, GOLD, 0, 0));
-  const shoulder = cyl(0.8, 2.2, 1.6, 16, ORANGE, 0, 3.8);
-  const neck = cyl(0.7, 0.7, 1.4, 12, ORANGE, 0, 5.3);
-  const cap = cyl(0.85, 0.85, 0.4, 12, GOLD, 0, 6.1);
-  roll.add(shoulder, neck, cap);
+  const m = model('juice-giant', JUICE_BOTTLE, { height: 5.2 });
+  const r = (JUICE_BOTTLE.size[0] * m.scale.x) / 2;
+  m.position.y = -5.2 / 2; // centre the bottle on its axis
+  roll.add(m);
   roll.rotation.z = Math.PI / 2; // bottle axis across the street
   const spin = new THREE.Group();
   spin.name = 'spin';
   spin.add(roll);
-  spin.scale.setScalar(0.55); // radius ~1.2 m: big, but the hero stays visible in front of it
   g.add(spin);
+  g.userData.radius = r;
   return g;
 }

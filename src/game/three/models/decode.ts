@@ -46,6 +46,10 @@ export function bakedGeometry(m: BakedModel) {
 export function bakedTexture(m: BakedModel, recolor?: (px: Uint8Array, i: number) => void) {
   const img = decodeJpeg(base64ToBytes(m.jpeg), { useTArray: true, formatAsRGBA: true });
   if (recolor) for (let i = 0; i < img.data.length; i += 4) recolor(img.data, i);
+  if (m.alpha) {
+    const a = decodeJpeg(base64ToBytes(m.alpha), { useTArray: true, formatAsRGBA: true });
+    for (let i = 3; i < img.data.length; i += 4) img.data[i] = a.data[i - 3];
+  }
   const t = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat);
   t.colorSpace = THREE.SRGBColorSpace;
   t.magFilter = THREE.LinearFilter;

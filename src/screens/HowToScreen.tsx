@@ -35,8 +35,9 @@ export function HowToScreen({ onBack }: { onBack: () => void }) {
             Credits (3D models, all CC-BY-4.0, from Sketchfab): petit taxi based on "Hong Kong Taxi" by Goedude; Hassan II
             Mosque, Derby House, Popular House, Old Neighborhood House and Morocco House by abdlilah ben; Hassan Tower by
             Ysn.Aitaddi; City Gate, Mixed Facade and Moroccan Boy by Mrigua Mohamed; city walls from "Moroccan culture" by
-            medbunz; Dacia Lodgy by abdelghani.0; police car by FF 3DMODEL. Models were simplified and recoloured for the
-            game.
+            medbunz; Dacia Lodgy by abdelghani.0; police car by FF 3DMODEL; palm by KrazzyElf; maple by atrodler; lamppost by Haggy the model ripper; tea table by
+            A9908244; apple box by Pixxellab; juice bottle by Spacesea; 200 dirham note by lordmehemedz (Sketchfab Standard).
+            Models were simplified and recoloured for the game.
           </Text>
         </ScrollView>
       </Screen>

@@ -62,6 +62,10 @@ export function GameScreen({ mode, cityIndex, onExit, onFinish }: Props) {
         pop('+1', colors.gold);
         buzz('light');
         break;
+      case 'cash':
+        pop('+200 DH', colors.mint, true);
+        buzz('success');
+        break;
       case 'hit':
         pop('OUCH!', colors.danger, true);
         buzz('heavy');
