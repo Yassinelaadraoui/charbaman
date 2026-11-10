@@ -3,7 +3,7 @@ import type { City, Landmark } from '../cities';
 import type { Entity } from '../engine';
 import { TAXI_PARTS } from './taxiMesh';
 import type { BakedModel } from './models/types';
-import { bakedGeometry, bakedTexture } from './models/decode';
+import { bakedGeometry, bakedTexture, posedGeometry } from './models/decode';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
@@ -462,20 +462,78 @@ export function entityObject(e: Entity, c: City): THREE.Object3D {
 
 // Roadside scenery: house facades, palms, lamps and flags.
 function build_house(c: City, variant: number, side: number) {
+  // A Moroccan town house, 2 to 4 storeys: shops or a carved door on the ground floor, framed windows with
+  // shutters and the odd balcony above, a parapet roof with a satellite dish or a water tank. Built from
+  // boxes, then merged by flat() into one or two meshes.
   const g = new THREE.Group();
-  const h = 5 + (variant % 3) * 2.2;
-  const w = 6.6;
-  const tone = variant % 2 ? c.near : shadeHex(c.near, -14);
-  g.add(box(4, h, w, tone, 0, h / 2));
-  g.add(box(4.1, 0.35, w + 0.1, c.accent, 0, h + 0.17));
-  const face = -side * 2.01; // facade faces the road
-  for (const z of [-2, 0, 2]) {
-    const win = box(0.05, 1.1, 0.75, z === 0 ? c.accent : 0x3a2e2a, face, h - 1.8, z);
-    g.add(win);
+  const W = 6.6; // along the street
+  const D = 4; // away from it
+  const v = (k: number) => Math.floor(hashN(variant * 7 + side * 3 + k) * 1000);
+  const floors = 2 + (variant % 3);
+  const GROUND = 3.2;
+  const STOREY = 2.9;
+  const H = GROUND + (floors - 1) * STOREY;
+  const tones = [c.near, '#' + hex6(shadeHex(c.near, -10)), '#' + hex6(shadeHex(c.near, 5)), '#' + hex6(shadeHex(c.near, -18))];
+  const tone = tones[(variant + (side > 0 ? 1 : 0)) % tones.length];
+  const dark = shadeHex(tone, -22);
+  const fx = -side * (D / 2); // facade plane, facing the road
+  // A box on the facade: `wz` along the street, `t` thick, standing `out` proud of the wall.
+  const f = (wz: number, h: number, t: number, color: number | string, y: number, z: number, out = 0) =>
+    g.add(box(t, h, wz, color, fx - side * (t / 2 + out), y, z));
+
+  g.add(box(D, H, W, tone, 0, H / 2));
+  f(W, 0.55, 0.06, dark, 0.27, 0); // plinth
+  // Ground floor: two bays, each a shop (dark opening, half-raised shutter, striped awning) or a door.
+  const AWNINGS = [c.accent, 0xc1272d, 0x2d6a4f, 0xe9c46a];
+  for (const [k, z] of [[0, -1.65], [1, 1.65]] as const) {
+    if (v(k) % 3 !== 0) {
+      f(2.4, 2.5, 0.04, 0x2a2420, 1.35, z);
+      f(2.4, 0.8, 0.07, 0x9aa0a6, 2.2, z); // rolled-up shutter
+      const aw = box(0.9, 0.08, 2.6, AWNINGS[v(k + 4) % AWNINGS.length], fx - side * 0.45, 2.75, z);
+      aw.rotation.z = side * 0.28;
+      g.add(aw);
+    } else {
+      f(1.6, 2.7, 0.03, c.accent, 1.35, z); // tiled surround
+      f(1.1, 2.3, 0.06, 0x6b3e1f, 1.15, z); // carved wooden door
+      f(0.08, 0.08, 0.1, 0xd4a017, 1.2, z + 0.35); // knocker
+    }
   }
-  g.add(box(0.06, 2.4, 1.3, c.accent, face, 1.2, (variant % 3) - 1));
+  // Upper storeys.
+  const frame = v(9) % 2 ? 0xffffff : shadeHex(tone, 18);
+  for (let fl = 1; fl < floors; fl++) {
+    const y0 = GROUND + (fl - 1) * STOREY;
+    f(W, 0.14, 0.08, dark, y0, 0); // floor band
+    const balcony = v(10 + fl) % 4 === 0;
+    for (const z of [-1.9, 0, 1.9]) {
+      if (z === 0 && !balcony && v(20 + fl) % 2) continue;
+      f(1.0, 1.45, 0.04, frame, y0 + 1.45, z);
+      f(0.78, 1.22, 0.07, 0x2f3b45, y0 + 1.45, z); // glass
+      if (v(30 + fl) % 2) for (const sz of [-1, 1]) f(0.36, 1.25, 0.06, c.accent, y0 + 1.45, z + sz * 0.62, 0.02); // shutters
+    }
+    if (balcony) {
+      f(2.4, 0.12, 0.75, dark, y0 + 0.62, 0);
+      f(2.4, 0.75, 0.05, 0x2b2b2b, y0 + 1.0, 0, 0.7); // wrought-iron rail
+    }
+  }
+  // Roof: a parapet with the top course stepped, and what Moroccan roofs always carry.
+  f(W, 0.5, 0.28, tone, H + 0.25, 0);
+  f(W, 0.08, 0.34, frame, H + 0.52, 0);
+  if (v(40) % 2) {
+    const post = box(0.06, 0.6, 0.06, 0x888888, side * 0.4, H + 0.3, v(41) % 2 ? -1.8 : 1.8);
+    const dish = cyl(0.42, 0.42, 0.05, 10, 0xeeeeee, side * 0.3, H + 0.7, post.position.z);
+    dish.rotation.z = -side * 1.1;
+    g.add(post, dish);
+  }
+  if (v(42) % 3 === 0) g.add(cyl(0.45, 0.45, 0.9, 8, v(43) % 2 ? 0xf2f2f2 : 0x1d6fb8, side * 0.9, H + 0.45, v(44) % 2 ? 1 : -1)); // water tank
   return g;
 }
+
+const hashN = (i: number) => {
+  let x = Math.imul(i ^ 0x2c1b3c6d, 0x297a2d39);
+  x ^= x >>> 15;
+  return ((Math.imul(x, 0x85ebca6b) ^ (x >>> 13)) >>> 0) / 4294967296;
+};
+const hex6 = (n: number) => n.toString(16).padStart(6, '0');
 
 // Real Moroccan houses from the asset pack, picked per city. `front` is the axis the facade faces.
 type HouseModel = { key: string; data: BakedModel; front: 1 | -1 };
@@ -695,12 +753,59 @@ export function chickens(seed: number) {
   return g;
 }
 
-// A boy cheering from the pavement, arms out.
-export function spectator(side: number) {
+// A boy walking along the pavement. The model was baked standing in a T-pose, so the walk is made here:
+// the arms are lowered to his sides, and arms and legs swing about the shoulders and hips (model space:
+// front +z, hips at y 0.6, shoulders at y 0.77, x 0.14). 8 poses to a stride.
+export const KID_CYCLE = { poses: 8, seconds: 0.86, speed: 1.25 };
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+function kidPose(base: Float32Array, k: number) {
+  const out = new Float32Array(base.length);
+  const a = (k / KID_CYCLE.poses) * Math.PI * 2;
+  const swing = Math.sin(a) * 0.42;
+  const HIP = 0.6;
+  const SHOULDER = 0.77;
+  for (let i = 0; i < base.length; i += 3) {
+    let x = base[i];
+    let y = base[i + 1];
+    let z = base[i + 2];
+    const side = x < 0 ? -1 : 1;
+    // Arms: everything out past the shoulder, above the waist.
+    const arm = y > 0.64 ? smoothstep(0.12, 0.18, Math.abs(x)) : 0;
+    if (arm > 0) {
+      const px = side * 0.14;
+      const down = side * -1.32 * arm; // from straight out to hanging by the side
+      const dx = x - px;
+      const dy = y - SHOULDER;
+      x = px + dx * Math.cos(down) - dy * Math.sin(down);
+      y = SHOULDER + dx * Math.sin(down) + dy * Math.cos(down);
+      const th = side * swing * 0.7 * arm; // swings against the leg on the same side
+      const ry = y - SHOULDER;
+      y = SHOULDER + ry * Math.cos(th) - z * Math.sin(th);
+      z = ry * Math.sin(th) + z * Math.cos(th);
+    }
+    // Legs: below the hips, split down the middle.
+    const leg = smoothstep(HIP + 0.02, HIP - 0.06, y);
+    if (leg > 0) {
+      const th = -side * swing * leg;
+      const ry = y - HIP;
+      y = HIP + ry * Math.cos(th) - z * Math.sin(th);
+      z = ry * Math.sin(th) + z * Math.cos(th);
+    }
+    out[i] = x;
+    out[i + 1] = y + Math.abs(Math.cos(a)) * 0.012; // a slight bob in the step
+    out[i + 2] = z;
+  }
+  return out;
+}
+
+export function walkingKid() {
+  const m = model('boy', BOY, { height: 1.3 });
+  m.geometry = geo('boy-walk', () => posedGeometry(BOY, KID_CYCLE.poses, kidPose, true));
+  m.updateMorphTargets();
   const g = new THREE.Group();
-  const m = model('boy', BOY, { height: 1.35 });
-  m.rotation.y = -side * (Math.PI / 2);
-  m.name = 'bob';
   g.add(m);
   return g;
 }
@@ -913,4 +1018,23 @@ export function lamp() {
 
 export function flag() {
   return flat('flag', () => build_flag());
+}
+
+// A zebra crossing across the street, and a manhole cover: painted and cast details on the asphalt.
+export function zebra(c: City) {
+  return flat(`zebra|${c.line}`, () => {
+    const g = new THREE.Group();
+    for (let k = 0; k < 9; k++) g.add(box(0.42, 0.01, 2.6, c.line, -2.6 + k * 0.65, 0.025, 0));
+    g.add(box(6, 0.01, 0.22, c.line, 0, 0.025, -1.75)); // stop line
+    return g;
+  });
+}
+
+export function manhole() {
+  return flat('manhole', () => {
+    const g = new THREE.Group();
+    g.add(cyl(0.38, 0.38, 0.02, 12, 0x3a3a3a, 0, 0.022));
+    g.add(cyl(0.3, 0.3, 0.025, 12, 0x4a4a4a, 0, 0.024));
+    return g;
+  });
 }

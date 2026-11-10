@@ -5,7 +5,7 @@ import { buildHero, HeroRig, poseHero } from './hero';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
 import { asphaltTexture, blobTexture, paverTexture } from './surfaces';
-import { entityObject, flatten, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
+import { entityObject, flatten, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -410,6 +410,12 @@ export class GameRenderer {
     // Roadside scenery.
     for (let i = Math.floor((s.z - camBack) / DECOR_STEP); i * DECOR_STEP < s.z + DECOR_D; i++) {
       const d = i * DECOR_STEP - s.z;
+      // A zebra crossing every so often (never under the chase's danger signs), and manhole covers.
+      if (i % 17 === 5) this.use(`zb${i}`, () => zebra(c)).position.set(bend(d), 0, -d);
+      else if (hash(i * 11 + 5) < 0.18) {
+        const x = (hash(i * 19) - 0.5) * 3.6;
+        this.use(`mh${i}`, manhole).position.set(x + bend(d), 0, -d);
+      }
       for (const side of [-1, 1]) {
         const r = hash(i * 2 + (side > 0 ? 1 : 0));
         const r2 = hash(i * 7 + (side > 0 ? 3 : 5));
@@ -422,7 +428,7 @@ export class GameRenderer {
         const shelter = !warn && r3 < 0.07 && kind !== 'spice';
         const clear = !shelter && kind !== 'spice' && !this.lite; // room on the pavement for small props
         const variant = Math.floor(r * 6);
-        if (hasModelHouses(c) && r2 < 0.6) {
+        if (hasModelHouses(c) && r2 < 0.5) {
           // Facade on the pavement line, the rest of the house behind it.
           const h = this.use(`m${i}${side}`, () => {
             const mh = modelHouse(c, variant, side);
@@ -434,12 +440,18 @@ export class GameRenderer {
           const h = this.use(`h${i}${side}`, () => house(c, variant, side));
           h.position.set(side * (ROAD_HALF + 5.4) + bend(d), 0, -d);
         }
-        // Now and then a kid cheers you on from the pavement.
-        if (r2 > 0.78 && clear) {
-          const b = this.use(`b${i}${side}`, () => spectator(side));
-          b.position.set(side * (ROAD_HALF + 0.95) + bend(d - 3), 0, -(d - 3));
-          b.getObjectByName('bob')!.position.y = Math.abs(Math.sin(t * 7 + i * 1.7)) * 0.25;
-        }
+        // People going about their day on the pavement, some coming toward you, some walking the same way.
+        // Each sets off from where he was when he came into view.
+        const walker = (key: string, make: () => THREE.Object3D, cycle: { poses: number; seconds: number; speed: number }, lane: number, dz: number) => {
+          const dir = hash(i * 31 + (side > 0 ? 7 : 3) + key.length) < 0.6 ? 1 : -1;
+          const o = this.use(key, () => Object.assign(make(), { userData: { born: t } }));
+          const walked = t - o.userData.born;
+          const dd = d + dz - dir * walked * cycle.speed;
+          o.position.set(side * (ROAD_HALF + lane) + bend(dd), 0, -dd);
+          o.rotation.y = dir > 0 ? 0 : Math.PI;
+          animate(o, (walked / cycle.seconds) * cycle.poses);
+        };
+        if (r2 > 0.8 && clear) walker(`k${i}${side}`, walkingKid, KID_CYCLE, 1.0 + hash(i * 5 + 1) * 0.6, -3);
         const p = this.use(`d${i}${side}`, () =>
           kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : kind === 'spice' ? spiceMarket() : flag(),
         );
@@ -465,14 +477,7 @@ export class GameRenderer {
           const ds = this.use(`ds${i}${side}`, () => dangerSign(side));
           ds.position.set(side * (ROAD_HALF + 0.75) + bend(d + 1), 0, -(d + 1));
         }
-        // An old man strolls toward you, from where he was when he came into view.
-        if (r3 > 0.07 && r3 < 0.15 && !this.lite) {
-          const om = this.use(`om${i}${side}`, () => Object.assign(oldMan(), { userData: { born: t } }));
-          const walked = t - om.userData.born;
-          const dd = d + 1 - walked * OLD_MAN_CYCLE.speed;
-          om.position.set(side * (ROAD_HALF + 0.8) + bend(dd), 0, -dd);
-          animate(om, (walked / OLD_MAN_CYCLE.seconds) * OLD_MAN_CYCLE.poses);
-        }
+        if (r3 > 0.07 && r3 < 0.15 && !this.lite) walker(`om${i}${side}`, oldMan, OLD_MAN_CYCLE, 0.8 + hash(i * 3 + 2) * 0.5, 1);
         // Now and then a cat pads along the foot of the houses.
         if (r3 > 0.25 && r3 < 0.32 && clear) {
           const ct = this.use(`ct${i}${side}`, () => {

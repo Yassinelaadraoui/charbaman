@@ -263,11 +263,13 @@ function pattern(s: GameState, z: number, inChase: boolean): number {
     return 40;
   }
   if (r < 0.65) {
-    const gap = range(s, -1.2, 1.2);
-    add(s, { kind: 'taxi', z, x: gap - 2.05, w: 0.85, h: 1.4, depth: 3.8 });
-    add(s, { kind: 'taxi', z: z + range(s, 0, 1.5), x: gap + 2.05, w: 0.85, h: 1.4, depth: 3.8 });
-    canLine(s, z - 2, gap, gap, 3);
-    return 10;
+    // Two cars side by side coming at you, with a gap between them to thread.
+    const gap = range(s, -0.9, 0.9);
+    const v = range(s, 5, 7.5) * (0.85 + c.density * 0.4);
+    oncoming(s, z + 34, Math.max(-2.15, gap - 2.05), v);
+    oncoming(s, z + 34 + range(s, 0, 1.5), Math.min(2.15, gap + 2.05), v);
+    canLine(s, z + 2, gap, gap, 3);
+    return 40;
   }
   if (r < 0.72) {
     // Two-way traffic: cars coming at you on both sides, a gap down the middle with bottles in it.
