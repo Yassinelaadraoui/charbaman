@@ -86,6 +86,7 @@ export default function App() {
     const isBest = result.score > (save.best[key] ?? 0);
     const at = Date.now();
     let next = recordLocal(save, key, { name: save.name || 'Charbaman', score: result.score, cans: result.cans, at });
+    if (result.coached) next = { ...next, coached: true };
     if (result.cleared && result.mode === 'stage') {
       next = { ...next, unlocked: Math.max(next.unlocked, Math.min(CITIES.length, result.cityIndex + 2)) };
     }
@@ -146,6 +147,7 @@ export default function App() {
           mode={route.mode}
           cityIndex={route.cityIndex}
           lite={save.settings.graphics === 'low'}
+          coach={!save.coached}
           onExit={() => setRoute({ name: 'title' })}
           onFinish={finish}
         />

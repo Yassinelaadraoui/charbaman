@@ -85,7 +85,8 @@ App Review notes: "No login required. Tap Play the Cities, then Casablanca."
 ## 8. Things worth a second look before launch
 
 - **Names and brands.** "Charba" and the hero are original, and the game is inspired by the 1999 game Pepsiman
-  without using its name or art. If "Charba" is, or becomes, a real drink brand in Morocco, check with them.
+  without using its name or art. The round emblem on the hero's chest was orange, white and blue, close enough to a
+  soda globe to invite a complaint; it is now orange, white and Charba green (icon, splash, sprite and screenshots). If "Charba" is, or becomes, a real drink brand in Morocco, check with them.
 - **The 200 dirham note** is a stylised 3D model of real currency; banknote images are usually fine in games, but
   you can swap it for a generic coin pile if you prefer to avoid the question.
 - **The danger signs** before each chase use a real landmine-warning design (skull and "خطر ألغام"). Given the real

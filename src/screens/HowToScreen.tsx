@@ -14,6 +14,7 @@ const TIPS: [string, string][] = [
   ['🛹', 'skate'],
   ['🏺', 'tajine'],
   ['🟠', 'chase'],
+  ['✨', 'combo'],
 ];
 
 export function HowToScreen({ onBack }: { onBack: () => void }) {

@@ -4,6 +4,7 @@ import type { Entity } from '../engine';
 import { TAXI_PARTS } from './taxiMesh';
 import type { BakedModel } from './models/types';
 import { bakedGeometry, bakedTexture } from './models/decode';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
 import { BOY } from './models/boy';
@@ -75,6 +76,86 @@ const sphere = (r: number, color: number | string, x = 0, y = 0, z = 0, seg = 8)
   return m;
 };
 
+// Draw calls are what phones choke on, and a lamp built from nine boxes costs nine of them. flat() builds a
+// prop once, merges its plain coloured parts into one vertex-coloured mesh per material kind, and hands out
+// cheap clones that share it. Named parts (spinning stars, police lights) and textured models stay separate.
+const flatCache = new Map<string, THREE.Object3D>();
+const flatMats = new Map<string, THREE.Material>();
+
+export function flat(key: string, build: () => THREE.Object3D): THREE.Object3D {
+  let t = flatCache.get(key);
+  if (!t) {
+    t = flatten(build());
+    flatCache.set(key, t);
+  }
+  return t.clone();
+}
+
+function flatMat(basic: boolean, side: THREE.Side) {
+  const key = `${basic ? 'b' : 'l'}${side}`;
+  let m = flatMats.get(key);
+  if (!m) {
+    m = basic ? new THREE.MeshBasicMaterial({ vertexColors: true, side }) : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side });
+    flatMats.set(key, m);
+  }
+  return m;
+}
+
+export function flatten(root: THREE.Object3D): THREE.Object3D {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const rel = new THREE.Matrix4();
+  const out = new THREE.Group();
+  out.name = root.name;
+  out.userData = { ...root.userData };
+  out.position.copy(root.position);
+  out.quaternion.copy(root.quaternion);
+  out.scale.copy(root.scale);
+  const buckets = new Map<string, { basic: boolean; side: THREE.Side; geos: THREE.BufferGeometry[] }>();
+  const walk = (o: THREE.Object3D) => {
+    const m = o as THREE.Mesh;
+    const material = m.isMesh ? (m.material as THREE.MeshLambertMaterial | THREE.MeshBasicMaterial) : null;
+    const plain =
+      !!material &&
+      !Array.isArray(material) &&
+      (material.type === 'MeshLambertMaterial' || material.type === 'MeshBasicMaterial') &&
+      !material.map &&
+      !material.transparent &&
+      !m.morphTargetInfluences;
+    if (o !== root && (o.name || o.userData.animate || (m.isMesh && !plain))) {
+      // Keep it whole, placed where it sat inside the prop.
+      const keep = o.clone();
+      rel.multiplyMatrices(inv, o.matrixWorld).decompose(keep.position, keep.quaternion, keep.scale);
+      out.add(keep);
+      return;
+    }
+    if (plain) {
+      const src = m.geometry;
+      const g = new THREE.BufferGeometry();
+      const pos = (src.index ? src.toNonIndexed() : src).attributes.position.clone();
+      g.setAttribute('position', pos);
+      g.applyMatrix4(rel.multiplyMatrices(inv, o.matrixWorld));
+      g.computeVertexNormals();
+      const c = material!.color;
+      const col = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) col.set([c.r, c.g, c.b], i * 3);
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      const basic = material!.type === 'MeshBasicMaterial';
+      const key = `${basic}${material!.side}`;
+      const b = buckets.get(key) ?? { basic, side: material!.side, geos: [] };
+      b.geos.push(g);
+      buckets.set(key, b);
+    }
+    o.children.forEach(walk);
+  };
+  walk(root);
+  for (const b of buckets.values()) {
+    const merged = mergeGeometries(b.geos);
+    if (merged) out.add(new THREE.Mesh(merged, flatMat(b.basic, b.side)));
+  }
+  return out;
+}
+
 // Models baked by scripts/bake-model.py (base at y=0, centred on x/z), each with its own texture atlas.
 const bakedMats = new Map<string, THREE.Material>();
 
@@ -139,7 +220,7 @@ export function charbaBottle(scale = 1) {
 }
 
 // In Safi, the pottery capital, the jump obstacles are stacks of glazed pots instead of crates.
-function pots(e: Entity) {
+function build_pots(e: Entity) {
   const g = new THREE.Group();
   const n = Math.max(2, Math.round(e.w * 2.5));
   const step = (e.w * 2) / n;
@@ -153,7 +234,7 @@ function pots(e: Entity) {
   return g;
 }
 
-function awning(e: Entity, c: City) {
+function build_awning(e: Entity, c: City) {
   const g = new THREE.Group();
   const H = e.y + e.h;
   g.add(box(0.14, H, 0.14, 0x5c3a1e, -e.w - 0.1, H / 2));
@@ -234,7 +315,7 @@ function car(e: Entity, c: City) {
 }
 
 // Petit taxi built from the decimated taxi model; only the body takes the city colour.
-function taxi(c: City) {
+function build_taxi(c: City) {
   const g = new THREE.Group();
   for (const [name, part] of Object.entries(TAXI_PARTS)) {
     const geom = geo(`taxi-${name}`, () => {
@@ -250,7 +331,7 @@ function taxi(c: City) {
   return g;
 }
 
-function scooter() {
+function build_scooter() {
   const g = new THREE.Group();
   g.add(box(0.5, 0.35, 1.3, 0x2a9d8f, 0, 0.45));
   g.add(box(0.45, 0.6, 0.35, 0xe9c46a, 0, 0.95, 0.15));
@@ -285,7 +366,7 @@ function donkeyCart(e: Entity) {
   return g;
 }
 
-function arch(e: Entity, finish: boolean) {
+function build_arch(e: Entity, finish: boolean) {
   const g = new THREE.Group();
   const H = e.h;
   g.add(box(0.3, H, 0.3, ORANGE_DEEP, -e.w - 0.3, H / 2));
@@ -314,7 +395,7 @@ export function tajinePickup(width = 0.6) {
   return g;
 }
 
-function skatePickup() {
+function build_skatePickup() {
   const g = new THREE.Group();
   g.add(box(0.34, 0.05, 1.0, ORANGE, 0, 0.12));
   g.add(box(0.34, 0.02, 0.96, GOLD, 0, 0.155));
@@ -380,7 +461,7 @@ export function entityObject(e: Entity, c: City): THREE.Object3D {
 }
 
 // Roadside scenery: house facades, palms, lamps and flags.
-export function house(c: City, variant: number, side: number) {
+function build_house(c: City, variant: number, side: number) {
   const g = new THREE.Group();
   const h = 5 + (variant % 3) * 2.2;
   const w = 6.6;
@@ -506,7 +587,8 @@ export function cat(seed = 0) {
 }
 
 // Three pigeons bobbing their heads on the pavement. Each faces +x; the head thrusts forward and back.
-function pigeon() {
+// Built once, merged into a body and a head mesh, and cloned: three pigeons cost six draw calls, not forty.
+function buildPigeon() {
   const g = new THREE.Group();
   g.add(ellipsoid(0.09, 1.5, 1, 1, 0x8f9bab, 0, 0.13, 0));
   g.add(ellipsoid(0.091, 1.2, 0.72, 1.03, 0x707c8a, -0.025, 0.14, 0)); // folded wings
@@ -521,8 +603,15 @@ function pigeon() {
   beak.rotation.z = -Math.PI / 2;
   head.add(beak);
   for (const sz of [-1, 1]) head.add(sphere(0.008, 0xe8a03a, 0.055, 0.055, sz * 0.03, 4));
-  g.add(head);
+  head.name = 'head';
+  g.add(flatten(head));
   for (const sz of [-1, 1]) g.add(cyl(0.006, 0.006, 0.08, 4, 0xd9726b, 0, 0.04, sz * 0.025));
+  return g;
+}
+
+function pigeon() {
+  const g = flat('pigeon', buildPigeon);
+  const head = g.getObjectByName('head')!;
   g.userData.animate = (phase: number) => {
     const u = ((phase % 8) + 8) % 8;
     const f = u <= 4 ? u / 4 : (8 - u) / 4; // forward and back
@@ -544,27 +633,34 @@ export function pigeons(seed: number) {
 }
 
 // A seagull for the port cities, wings flapping with the tips trailing. Faces +z, body at the origin.
+// Merged like the pigeons: a body, and an inner and outer mesh per wing.
 export const GULL_CYCLE = { poses: 8, seconds: 1.2 };
-export function seagull() {
+function buildGull() {
   const g = new THREE.Group();
   g.add(ellipsoid(0.1, 0.9, 0.85, 2.2, 0xf2f2f0));
   g.add(sphere(0.07, 0xf2f2f0, 0, 0.05, 0.22, 7));
   const beak = cyl(0, 0.016, 0.07, 4, 0xf2c12e, 0, 0.04, 0.31);
   beak.rotation.x = Math.PI / 2;
   g.add(beak, box(0.14, 0.02, 0.14, 0xd0d4d8, 0, 0, -0.27));
-  const joints: { inner: THREE.Group; outer: THREE.Group; side: number }[] = [];
   for (const side of [-1, 1]) {
-    const inner = new THREE.Group();
-    inner.position.set(side * 0.07, 0.03, 0.02);
-    inner.add(box(0.32, 0.02, 0.2, 0xb9c3cc, side * 0.16, 0, 0));
     const outer = new THREE.Group();
     outer.position.x = side * 0.32;
     outer.add(box(0.26, 0.016, 0.15, 0xb9c3cc, side * 0.13, 0, -0.01));
     outer.add(box(0.09, 0.017, 0.12, 0x222222, side * 0.3, 0, -0.02)); // black wingtips
-    inner.add(outer);
-    g.add(inner);
-    joints.push({ inner, outer, side });
+    outer.name = `outer${side}`;
+    const inner = new THREE.Group();
+    inner.position.set(side * 0.07, 0.03, 0.02);
+    inner.add(box(0.32, 0.02, 0.2, 0xb9c3cc, side * 0.16, 0, 0));
+    inner.add(flatten(outer));
+    inner.name = `inner${side}`;
+    g.add(flatten(inner));
   }
+  return g;
+}
+
+export function seagull() {
+  const g = flat('gull', buildGull);
+  const joints = [-1, 1].map((side) => ({ inner: g.getObjectByName(`inner${side}`)!, outer: g.getObjectByName(`outer${side}`)!, side }));
   g.userData.animate = (phase: number) => {
     const a = Math.sin((phase / GULL_CYCLE.poses) * Math.PI * 2);
     const lag = Math.sin((phase / GULL_CYCLE.poses) * Math.PI * 2 - 0.8);
@@ -618,7 +714,7 @@ export function palm() {
 
 // Street lamp: a dark green pole on the pavement with an arm reaching over the road (-x before turning) and
 // a lantern hanging from it.
-export function lamp() {
+function build_lamp() {
   const g = new THREE.Group();
   const POLE = 0x1f2d26;
   g.add(cyl(0.17, 0.2, 0.45, 8, POLE, 0, 0.22));
@@ -672,7 +768,7 @@ export function spiceMarket() {
   return g;
 }
 
-export function flag() {
+function build_flag() {
   const g = new THREE.Group();
   g.add(cyl(0.04, 0.04, 4, 6, 0x555555, 0, 2));
   g.add(box(0.04, 0.8, 1.2, 0xc1272d, 0, 3.5, 0.62));
@@ -781,4 +877,40 @@ export function giantBottle() {
   g.add(spin);
   g.userData.radius = r;
   return g;
+}
+
+function pots(e: Entity) {
+  return flat(`pots|${e.w}|${e.h}`, () => build_pots(e));
+}
+
+function awning(e: Entity, c: City) {
+  return flat(`awning|${c.id}|${e.w}|${e.y}|${e.h}`, () => build_awning(e, c));
+}
+
+function scooter() {
+  return flat('scooter', () => build_scooter());
+}
+
+function arch(e: Entity, finish: boolean) {
+  return flat(`arch|${finish}|${e.w}|${e.h}`, () => build_arch(e, finish));
+}
+
+function skatePickup() {
+  return flat('skate', () => build_skatePickup());
+}
+
+function taxi(c: City) {
+  return flat(`taxi|${c.taxi}`, () => build_taxi(c));
+}
+
+export function house(c: City, variant: number, side: number) {
+  return flat(`house|${c.id}|${variant}|${side}`, () => build_house(c, variant, side));
+}
+
+export function lamp() {
+  return flat('lamp', () => build_lamp());
+}
+
+export function flag() {
+  return flat('flag', () => build_flag());
 }

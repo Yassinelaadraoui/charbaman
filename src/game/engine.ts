@@ -17,6 +17,15 @@ const MAX_HEALTH = 3;
 const LIFE_EVERY = 25;
 const CHASE_GAP = 12;
 const ENDLESS_CITY_LEN = 900;
+// Bottles picked up close together build a combo: every COMBO_STEP in a row raises the multiplier on bottle
+// points, up to COMBO_MAX. Miss the window or take a hit and it drops back to x1.
+const COMBO_WINDOW = 2.5;
+const COMBO_STEP = 8;
+const COMBO_MAX = 5;
+const CAN_POINTS = 50;
+// Brushing past traffic without touching it is worth a bonus.
+const CLOSE_MARGIN = 0.5;
+const CLOSE_POINTS = 100;
 
 export type EntityKind =
   | 'can'
@@ -45,6 +54,7 @@ export type Entity = {
   homeZ?: number; // where a moving car starts, so a respawn puts it back
   wake?: number; // starts moving when the runner is this close
   done: boolean; // collected / triggered / already hit
+  passed?: boolean; // already gone by the runner (for near misses)
 };
 
 export type GameMode = 'stage' | 'endless';
@@ -63,7 +73,10 @@ export type GameEvent = {
     | 'chase'
     | 'clear'
     | 'over'
-    | 'city';
+    | 'city'
+    | 'combo'
+    | 'close';
+  n?: number; // combo multiplier
   x?: number;
   z?: number;
 };
@@ -99,6 +112,10 @@ export type GameState = {
   chaseGap: number;
   stun: number;
   jumpBuffer: number;
+  combo: number; // bottles in the current chain
+  comboTimer: number; // seconds left to grab the next one
+  bonus: number; // points from combo multipliers and near misses
+  closeCalls: number;
   events: GameEvent[];
   nextId: number;
 };
@@ -166,6 +183,10 @@ export function createGame(mode: GameMode, cityIndex = 0): GameState {
     chaseGap: CHASE_GAP,
     stun: 0,
     jumpBuffer: 0,
+    combo: 0,
+    comboTimer: 0,
+    bonus: 0,
+    closeCalls: 0,
     events: [],
     nextId: 1,
   };
@@ -326,6 +347,7 @@ function respawn(s: GameState) {
   s.skate = 0;
   for (const e of s.entities) {
     if (e.homeZ !== undefined) e.z = e.homeZ; // cars drive back to where they waited
+    if (e.z > s.z - 2) e.passed = false;
     if (e.z > s.z - 2 && e.kind !== 'can' && e.kind !== 'cash') e.done = false;
   }
 }
@@ -342,9 +364,12 @@ function loseLife(s: GameState) {
   respawn(s);
 }
 
+export const comboMultiplier = (s: GameState) => Math.min(COMBO_MAX, 1 + Math.floor(s.combo / COMBO_STEP));
+
 function hit(s: GameState, e: Entity) {
   e.done = true;
   if (s.invuln > 0) return;
+  s.combo = 0;
   s.events.push({ type: 'hit', x: e.x, z: e.z });
   s.shake = 0.35;
   s.speed *= 0.35;
@@ -377,6 +402,8 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   s.skate = Math.max(0, s.skate - dt);
   s.shake = Math.max(0, s.shake - dt);
   s.stun = Math.max(0, s.stun - dt);
+  s.comboTimer = Math.max(0, s.comboTimer - dt);
+  if (s.comboTimer === 0) s.combo = 0;
 
   // Speed: ramps up through a stage, faster in the chase and on a skateboard.
   const endlessBoost = s.mode === 'endless' ? Math.min(10, s.z / 400) : 0;
@@ -426,6 +453,16 @@ export function step(s: GameState, dtRaw: number, input: Input) {
       }
     }
     if (e.vz && (e.wake === undefined || e.z - s.z < e.wake)) e.z += e.vz * dt;
+    // A car, scooter or cart that has just gone by without touching you, by a whisker: a close call.
+    if (!e.done && !e.passed && (e.kind === 'taxi' || e.kind === 'scooter' || e.kind === 'donkey') && e.z + e.depth / 2 < s.z - PLAYER_HALF) {
+      e.passed = true;
+      const gap = Math.abs(e.x - s.x) - e.w - PLAYER_HALF;
+      if (gap < CLOSE_MARGIN && s.invuln === 0) {
+        s.bonus += CLOSE_POINTS;
+        s.closeCalls += 1;
+        s.events.push({ type: 'close', x: e.x, z: e.z });
+      }
+    }
     if (e.done || !overlaps(s, e, z0, s.z)) continue;
     const top = e.y + e.h;
     const vertical = s.y < top && s.y + standHeight(s) > e.y;
@@ -435,7 +472,13 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           e.done = true;
           s.cans += 1;
           s.lifeCans += 1;
+          const before = comboMultiplier(s);
+          s.combo += 1;
+          s.comboTimer = COMBO_WINDOW;
+          const mult = comboMultiplier(s);
+          s.bonus += CAN_POINTS * (mult - 1);
           s.events.push({ type: 'can', x: e.x, z: e.z });
+          if (mult > before) s.events.push({ type: 'combo', n: mult });
           if (s.lifeCans >= LIFE_EVERY) {
             s.lifeCans = 0;
             s.lives = Math.min(9, s.lives + 1);
@@ -510,7 +553,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
 }
 
 export function scoreOf(s: GameState, cleared: boolean) {
-  const base = Math.floor(s.z) + s.cans * 50 + s.cash * 500;
+  const base = Math.floor(s.z) + s.cans * CAN_POINTS + s.cash * 500 + s.bonus;
   return cleared ? base + s.lives * 1000 + s.health * 250 : base;
 }
 

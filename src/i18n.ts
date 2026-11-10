@@ -47,6 +47,8 @@ const en = {
   'tip.tajine.body': 'Lands on your head and flips your controls. Avoid it!',
   'tip.chase.head': 'The giant Charba',
   'tip.chase.body': 'The end of every city is a chase. Get hit and it rolls closer. If it catches you, you lose a life.',
+  'tip.combo.head': 'Combos and close calls',
+  'tip.combo.body': 'Grab bottles in a row to raise your multiplier, up to x5. Brush past traffic without touching it for a bonus.',
 
   leaderboard: 'Leaderboard',
   worldwide: 'Worldwide scores',
@@ -88,6 +90,11 @@ const en = {
   'pop.checkpoint': 'CHECKPOINT!',
   'pop.skate': 'SKATEBOARD!',
   'pop.tajine': 'TAJINE HEAD! CONTROLS FLIPPED',
+  'pop.combo': 'COMBO x{n}!',
+  'pop.close': 'CLOSE CALL! +100',
+  'hint.jump': 'Swipe up to jump!',
+  'hint.slide': 'Swipe down to slide under!',
+  'hint.dodge': 'Drag sideways to dodge!',
   'status.tajine': '🔄 Controls flipped {n}s',
   'status.skate': '🛹 Skateboard {n}s',
 
@@ -163,6 +170,8 @@ const fr: Record<Key, string> = {
   'tip.tajine.body': 'Il tombe sur ta tête et inverse les commandes. Évite-le !',
   'tip.chase.head': 'La Charba géante',
   'tip.chase.body': 'Chaque ville finit par une poursuite. Chaque coup la rapproche. Si elle te rattrape, tu perds une vie.',
+  'tip.combo.head': 'Combos et frôlements',
+  'tip.combo.body': 'Enchaîne les bouteilles pour monter le multiplicateur, jusqu’à x5. Frôle la circulation sans la toucher pour un bonus.',
 
   leaderboard: 'Classement',
   worldwide: 'Scores mondiaux',
@@ -204,6 +213,11 @@ const fr: Record<Key, string> = {
   'pop.checkpoint': 'CONTRÔLE !',
   'pop.skate': 'SKATEBOARD !',
   'pop.tajine': 'TAJINE SUR LA TÊTE ! COMMANDES INVERSÉES',
+  'pop.combo': 'COMBO x{n} !',
+  'pop.close': 'DE JUSTESSE ! +100',
+  'hint.jump': 'Glisse vers le haut pour sauter !',
+  'hint.slide': 'Glisse vers le bas pour passer dessous !',
+  'hint.dodge': 'Glisse sur le côté pour esquiver !',
   'status.tajine': '🔄 Commandes inversées {n} s',
   'status.skate': '🛹 Skateboard {n} s',
 
@@ -277,6 +291,8 @@ const ar: Record<Key, string> = {
   'tip.tajine.body': 'يسقط على رأسك ويعكس التحكم. تجنبه!',
   'tip.chase.head': 'الشربة العملاقة',
   'tip.chase.body': 'نهاية كل مدينة مطاردة. كل ضربة تقربها منك. إذا أمسكتك تخسر حياة.',
+  'tip.combo.head': 'كومبو ونجاة بأعجوبة',
+  'tip.combo.body': 'اجمع القنينات بلا توقف لترفع المضاعف حتى x5. مرّ بجانب السيارات دون أن تلمسها لتربح مكافأة.',
 
   leaderboard: 'لوحة المتصدرين',
   worldwide: 'نتائج العالم',
@@ -318,6 +334,11 @@ const ar: Record<Key, string> = {
   'pop.checkpoint': 'نقطة تفتيش!',
   'pop.skate': 'لوح التزلج!',
   'pop.tajine': 'طاجين على الرأس! التحكم معكوس',
+  'pop.combo': 'كومبو x{n}!',
+  'pop.close': 'نجوت بأعجوبة! +100',
+  'hint.jump': 'اسحب للأعلى لتقفز!',
+  'hint.slide': 'اسحب للأسفل لتنزلق تحتها!',
+  'hint.dodge': 'اسحب جانباً لتراوغ!',
   'status.tajine': '🔄 التحكم معكوس {n} ث',
   'status.skate': '🛹 لوح التزلج {n} ث',
 

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import type { City } from '../cities';
-import { GameState, ROAD_HALF, chaseStart, city as cityOf } from '../engine';
+import { Entity, GameState, ROAD_HALF, chaseStart, city as cityOf } from '../engine';
 import { buildHero, HeroRig, poseHero } from './hero';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
+import { asphaltTexture, blobTexture, paverTexture } from './surfaces';
+import { entityObject, flatten, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -13,7 +14,8 @@ const MAX_D = 110;
 const DECOR_D = 80;
 const SEG = 3;
 const DECOR_STEP = 7;
-const STRIPS = 6; // ground L/R, curb L/R, road, centre dash
+const ROAD_STRIPS = 4; // curb L/R, road, centre dash
+const GROUND_STRIPS = 2; // pavement L/R
 
 // Pavement decor per city; maples line the streets in the cooler north.
 const DECOR: Record<string, string[]> = {
@@ -54,9 +56,9 @@ export class GameRenderer {
   camera: THREE.PerspectiveCamera;
   hero: HeroRig;
   shadow: THREE.Mesh;
-  road: THREE.Mesh;
-  roadPos: Float32Array;
-  roadCol: Float32Array;
+  road: THREE.Mesh; // asphalt, kerbs and markings
+  ground: THREE.Mesh; // paved pavements out to the houses and beyond
+  blobMat: THREE.MeshBasicMaterial; // soft contact shadows under cars, carts and crates
   sky: THREE.Mesh;
   skyline = new THREE.Group();
   sea: THREE.Mesh;
@@ -69,8 +71,9 @@ export class GameRenderer {
   lastTime = 0;
   frame = 0;
   cityId = '';
-  camDist = 6.2;
-  camHeight = 3.2;
+  camDist = 5.2;
+  camHeight = 3.9;
+  fovKick = 0; // degrees added to the field of view at speed (skateboard, chase)
   onFrameEnd?: () => void;
   debugCamera?: { pos: [number, number, number]; look: [number, number, number] }; // for automated playtests
   heroX = 0; // last frame's hero position and lean, for leaning into turns
@@ -127,20 +130,25 @@ export class GameRenderer {
     this.sea.position.set(0, -0.05, -300);
     this.scene.add(this.sea, this.skyline);
 
-    // Road + ground ribbon, rebuilt every frame (STRIPS quads per segment, 6 verts per quad).
+    // Road and pavement ribbons, rebuilt every frame (6 verts per quad), each with its own tiling texture.
     const segs = Math.ceil(MAX_D / SEG) + 2;
-    this.roadPos = new Float32Array(segs * STRIPS * 6 * 3);
-    this.roadCol = new Float32Array(segs * STRIPS * 6 * 3);
-    const roadGeo = new THREE.BufferGeometry();
-    roadGeo.setAttribute('position', new THREE.BufferAttribute(this.roadPos, 3));
-    roadGeo.setAttribute('color', new THREE.BufferAttribute(this.roadCol, 3));
-    this.road = new THREE.Mesh(roadGeo, new THREE.MeshBasicMaterial({ vertexColors: true }));
-    this.road.frustumCulled = false;
-    this.scene.add(this.road);
+    const ribbon = (strips: number, map: THREE.Texture) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs * strips * 18), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(segs * strips * 18), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(segs * strips * 12), 2));
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, map }));
+      m.frustumCulled = false;
+      this.scene.add(m);
+      return m;
+    };
+    this.ground = ribbon(GROUND_STRIPS, paverTexture());
+    this.road = ribbon(ROAD_STRIPS, asphaltTexture());
 
-    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }));
+    this.blobMat = new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, opacity: 0.5, depthWrite: false });
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), this.blobMat);
     this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.y = 0.02;
+    this.shadow.position.y = 0.04;
     this.scene.add(this.shadow);
 
     this.hero = buildHero();
@@ -203,11 +211,13 @@ export class GameRenderer {
   }
 
   fitCamera(aspect: number) {
-    // Keep about 5.6 m of street visible across at the hero, whatever the phone shape.
-    const halfWidth = 2.9;
+    // Keep about 4.9 m of street visible across at the hero on wide phones; tall ones cap the field of view
+    // and see a little less, rather than a sliver of street between a lot of sky and a lot of road. The camera
+    // follows the hero sideways, so the kerbs come into view as he steers toward them.
+    const halfWidth = 2.45;
     const hfov = 2 * Math.atan(halfWidth / this.camDist);
     const vfov = 2 * Math.atan(Math.tan(hfov / 2) / aspect);
-    this.camera.fov = Math.min(95, Math.max(50, THREE.MathUtils.radToDeg(vfov)));
+    this.camera.fov = Math.min(78, Math.max(50, THREE.MathUtils.radToDeg(vfov))) + this.fovKick;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
   }
@@ -249,6 +259,10 @@ export class GameRenderer {
       l.position.set([0, -80, 80, -160][j % 4] + hash(c.seed + j) * 20, 0, -135 - (j % 2) * 15);
       this.skyline.add(l);
     });
+    // One draw call for all the far blocks instead of forty.
+    const merged = flatten(this.skyline);
+    this.skyline.clear();
+    this.skyline.add(...merged.children);
     // The skyline sits beyond the fog; it is already painted in hazy colours, so let it ignore fog.
     const noFog = new Map<THREE.Material, THREE.Material>();
     this.skyline.traverse((o) => {
@@ -267,6 +281,25 @@ export class GameRenderer {
     // City change: drop pooled props so they are rebuilt in the new colours.
     for (const [, p] of this.pool) this.scene.remove(p.obj);
     this.pool.clear();
+  }
+
+  // Grounds cars, carts and crates with a soft contact shadow, so they no longer seem to float on the road.
+  private blobGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  private withShadow(o: THREE.Object3D, e: Entity) {
+    const sized: Partial<Record<Entity['kind'], [number, number]>> = {
+      taxi: [e.w * 2.5, e.depth * 1.15],
+      scooter: [0.9, 1.7],
+      donkey: [e.w * 2.2, e.depth * 1.3],
+      crate: [e.w * 2.1, e.depth * 1.8],
+    };
+    const size = sized[e.kind];
+    if (!size || this.lite) return o;
+    const b = new THREE.Mesh(this.blobGeo, this.blobMat);
+    b.scale.set(size[0], 1, size[1]);
+    b.position.y = 0.035;
+    b.renderOrder = -1;
+    o.add(b);
+    return o;
   }
 
   private use(key: string, make: () => THREE.Object3D) {
@@ -294,18 +327,21 @@ export class GameRenderer {
     };
     const t = s.time;
 
-    // Camera: behind and above, following the hero sideways a little. Pulls back in the chase.
+    // Camera: behind and above, looking down the street so the hero runs in the lower third and the road ahead
+    // fills the screen. Follows the hero sideways and a little up on jumps. Pulls back in the chase.
     const chase = s.phase === 'chase';
-    const targetDist = chase ? 9 : 6.2;
+    const targetDist = chase ? 8.4 : 5.2;
     // As the giant bottle closes in, lift the camera so you can still see over it.
-    const targetHeight = chase ? 4.8 + (1 - s.chaseGap / 12) * 2.4 : 3.2;
+    const targetHeight = chase ? 4.9 + (1 - s.chaseGap / 12) * 2.2 : 3.9;
     this.camDist += (targetDist - this.camDist) * 0.05;
     this.camHeight += (targetHeight - this.camHeight) * 0.05;
-    const camX = s.x * 0.55;
+    // A wider view at speed sells the rush of the skateboard and the chase.
+    this.fovKick += ((s.skate > 0 ? 7 : 0) + (chase ? 3 : 0) - this.fovKick) * 0.06;
+    const camX = s.x * 0.6;
     const shakeX = s.shake > 0 ? Math.sin(t * 90) * s.shake * 0.25 : 0;
     const shakeY = s.shake > 0 ? Math.cos(t * 70) * s.shake * 0.15 : 0;
-    this.camera.position.set(camX + shakeX, this.camHeight + shakeY, this.camDist);
-    this.camera.lookAt(camX * 0.6 + bend(14) * 0.5, 0.9, -14);
+    this.camera.position.set(camX + shakeX, this.camHeight + s.y * 0.3 + shakeY, this.camDist);
+    this.camera.lookAt(camX * 0.6 + bend(12) * 0.5, s.y * 0.2, -10);
     this.fitCamera(this.camera.aspect);
     if (this.debugCamera) {
       this.camera.position.set(...this.debugCamera.pos);
@@ -344,7 +380,7 @@ export class GameRenderer {
       const d = e.z - s.z;
       if (d < -camBack || d > MAX_D) continue;
       if (e.done && (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine')) continue;
-      const o = this.use(`e${e.id}`, () => entityObject(e, c));
+      const o = this.use(`e${e.id}`, () => this.withShadow(entityObject(e, c), e));
       o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
       if (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
       if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? -0.5 : 0.5;
@@ -497,28 +533,44 @@ export class GameRenderer {
   }
 
   private buildRoad(s: GameState, c: City, bend: (d: number) => number) {
-    const pos = this.roadPos;
-    const col = this.roadCol;
-    let v = 0;
-    const ground = [color(c.ground[0]), color(c.ground[1])];
+    const ground = [color(c.ground[0])];
     const road = [color(c.road[0]), color(c.road[1])];
     const curb = [color(c.curb[0]), color(c.curb[1])];
     const line = color(c.line);
     const first = Math.floor((s.z - this.camDist - 2) / SEG);
-    const segs = this.roadPos.length / (STRIPS * 6 * 3);
     const CURB = 0.45;
     const GROUND = 40;
-    const quad = (x0a: number, x1a: number, za: number, x0b: number, x1b: number, zb: number, cl: THREE.Color, y = 0) => {
-      const p = [x0a, y, za, x1a, y, za, x1b, y, zb, x0a, y, za, x1b, y, zb, x0b, y, zb];
-      for (let i = 0; i < 18; i++) pos[v * 3 + i] = p[i];
-      for (let i = 0; i < 6; i++) {
-        col[(v + i) * 3] = cl.r;
-        col[(v + i) * 3 + 1] = cl.g;
-        col[(v + i) * 3 + 2] = cl.b;
-      }
-      v += 6;
+    // Writes quads into one ribbon. UVs follow the street (unbent x, absolute z) so the texture stays put on
+    // the ground as you run over it; `scale` is metres per texture tile.
+    const writer = (mesh: THREE.Mesh, su: number, sv: number) => {
+      const g = mesh.geometry;
+      const pos = g.attributes.position.array as Float32Array;
+      const col = g.attributes.color.array as Float32Array;
+      const uv = g.attributes.uv.array as Float32Array;
+      let v = 0;
+      const quad = (x0: number, x1: number, ba: number, bb: number, za: number, zb: number, wa: number, wb: number, cl: THREE.Color, y = 0) => {
+        const p = [x0 + ba, y, za, x1 + ba, y, za, x1 + bb, y, zb, x0 + ba, y, za, x1 + bb, y, zb, x0 + bb, y, zb];
+        const t = [x0 / su, wa / sv, x1 / su, wa / sv, x1 / su, wb / sv, x0 / su, wa / sv, x1 / su, wb / sv, x0 / su, wb / sv];
+        pos.set(p, v * 3);
+        uv.set(t, v * 2);
+        for (let i = 0; i < 6; i++) {
+          col[(v + i) * 3] = cl.r;
+          col[(v + i) * 3 + 1] = cl.g;
+          col[(v + i) * 3 + 2] = cl.b;
+        }
+        v += 6;
+      };
+      const done = () => {
+        g.attributes.position.needsUpdate = true;
+        g.attributes.color.needsUpdate = true;
+        g.attributes.uv.needsUpdate = true;
+      };
+      return { quad, done, segs: pos.length / 18 / (mesh === this.road ? ROAD_STRIPS : GROUND_STRIPS) };
     };
-    for (let n = 0; n < segs; n++) {
+    const gw = writer(this.ground, 1, 1);
+    // Asphalt tiles span the road (6 m) so the tyre tracks line up with the lanes.
+    const rw = writer(this.road, ROAD_HALF * 2, ROAD_HALF * 2);
+    for (let n = 0; n < gw.segs; n++) {
       const i = first + n;
       const da = i * SEG - s.z;
       const db = da + SEG;
@@ -526,17 +578,19 @@ export class GameRenderer {
       const bb = bend(db);
       const za = -da;
       const zb = -db;
+      const wa = i * SEG;
+      const wb = wa + SEG;
       const alt = ((i % 2) + 2) % 2;
-      quad(-GROUND + ba, -ROAD_HALF - CURB + ba, za, -GROUND + bb, -ROAD_HALF - CURB + bb, zb, ground[alt]);
-      quad(ROAD_HALF + CURB + ba, GROUND + ba, za, ROAD_HALF + CURB + bb, GROUND + bb, zb, ground[alt]);
-      quad(-ROAD_HALF - CURB + ba, -ROAD_HALF + ba, za, -ROAD_HALF - CURB + bb, -ROAD_HALF + bb, zb, curb[alt], 0.03);
-      quad(ROAD_HALF + ba, ROAD_HALF + CURB + ba, za, ROAD_HALF + bb, ROAD_HALF + CURB + bb, zb, curb[alt], 0.03);
-      quad(-ROAD_HALF + ba, ROAD_HALF + ba, za, -ROAD_HALF + bb, ROAD_HALF + bb, zb, road[alt]);
+      gw.quad(-GROUND, -ROAD_HALF - CURB, ba, bb, za, zb, wa, wb, ground[0]);
+      gw.quad(ROAD_HALF + CURB, GROUND, ba, bb, za, zb, wa, wb, ground[0]);
+      rw.quad(-ROAD_HALF - CURB, -ROAD_HALF, ba, bb, za, zb, wa, wb, curb[alt], 0.03);
+      rw.quad(ROAD_HALF, ROAD_HALF + CURB, ba, bb, za, zb, wa, wb, curb[alt], 0.03);
+      rw.quad(-ROAD_HALF, ROAD_HALF, ba, bb, za, zb, wa, wb, road[alt]);
       // centre dash on every other segment (a zero-width quad otherwise)
       const dw = alt ? 0.08 : 0;
-      quad(-dw + ba, dw + ba, za - 0.4, -dw + bb, dw + bb, zb + 0.4, line, 0.02);
+      rw.quad(-dw, dw, ba, bb, za - 0.4, zb + 0.4, wa, wb, line, 0.02);
     }
-    this.road.geometry.attributes.position.needsUpdate = true;
-    this.road.geometry.attributes.color.needsUpdate = true;
+    gw.done();
+    rw.done();
   }
 }

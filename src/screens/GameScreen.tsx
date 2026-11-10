@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Animated, AppState, BackHandler, PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, AppState, Easing, BackHandler, PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CITIES } from '../game/cities';
-import { GameEvent, GameMode, GameState, Input, ROAD_HALF, city, createGame, progress, start, step } from '../game/engine';
+import { EntityKind, GameEvent, GameMode, GameState, Input, ROAD_HALF, city, comboMultiplier, createGame, progress, start, step } from '../game/engine';
 import { GLView } from 'expo-gl';
 import { GameRenderer } from '../game/three/scene';
 import { Bottle } from '../game/sprites';
@@ -13,11 +13,40 @@ import { hapticsOn, initSounds, play } from '../services/sound';
 import { setMusicTempo } from '../services/music';
 import { cityName, fmt, t } from '../i18n';
 
-export type RunResult = { mode: GameMode; cityIndex: number; cleared: boolean; score: number; cans: number; distance: number };
+export type RunResult = { mode: GameMode; cityIndex: number; cleared: boolean; score: number; cans: number; distance: number; coached: boolean };
 
-type Props = { mode: GameMode; cityIndex: number; lite?: boolean; onExit: () => void; onFinish: (r: RunResult) => void };
+type Props = { mode: GameMode; cityIndex: number; lite?: boolean; coach?: boolean; onExit: () => void; onFinish: (r: RunResult) => void };
 
-type Popup = { id: number; text: string; color: string; big?: boolean; born: number };
+type Popup = { id: number; text: string; color: string; big?: boolean };
+
+// A score popup that floats up and fades on the native driver, so it stays smooth even though the HUD
+// only re-renders when something on it changes.
+function PopupText({ p, top, onDone }: { p: Popup; top: number; onDone: (id: number) => void }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(a, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true }).start(() => onDone(p.id));
+  }, [a, onDone, p.id]);
+  return (
+    <Animated.Text
+      pointerEvents="none"
+      style={[
+        styles.popup,
+        p.big && styles.popupBig,
+        {
+          color: p.color,
+          top,
+          opacity: a.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+          transform: [
+            { translateY: a.interpolate({ inputRange: [0, 1], outputRange: [0, -63] }) },
+            { scale: a.interpolate({ inputRange: [0, 0.08, 1], outputRange: [1, 1.3, 1.3] }) },
+          ],
+        },
+      ]}
+    >
+      {p.text}
+    </Animated.Text>
+  );
+}
 
 // Touch tuning. A swipe is a quick vertical flick of SWIPE px measured from an anchor that follows the finger
 // while it steers sideways, so a jump or slide works in the middle of a long drag, as often as you like.
@@ -25,13 +54,18 @@ const SWIPE = 20;
 const SWIPE_COOLDOWN = 140; // ms before the same touch can swipe again
 const STEER_SPAN = 0.36; // dragging this share of the screen width crosses half the street
 
+// First-run coaching: the first time each kind of obstacle comes up, time slows and a hint says what to do.
+const COACH: Partial<Record<EntityKind, 'hint.jump' | 'hint.slide' | 'hint.dodge'>> = { crate: 'hint.jump', awning: 'hint.slide', taxi: 'hint.dodge' };
+const SLOWMO = 1.1; // seconds of slow motion (real time)
+const SLOWMO_SCALE = 0.35;
+
 const buzz = (kind: 'light' | 'heavy' | 'success') => {
   if (Platform.OS === 'web' || !hapticsOn()) return;
   if (kind === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   else Haptics.impactAsync(kind === 'heavy' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 };
 
-export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: Props) {
+export function GameScreen({ mode, cityIndex, lite = false, coach = false, onExit, onFinish }: Props) {
   const { width: W, height: H } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const gfx = useRef<GameRenderer | null>(null);
@@ -43,9 +77,45 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
   const pausedRef = useRef(false);
   const popups = useRef<Popup[]>([]);
   const popupId = useRef(0);
+  // The HUD re-renders only when what it shows changes (and the score at most ~15 times a second): a React
+  // render every frame costs phones time the 3D scene needs.
+  const hudDirty = useRef(true);
+  const hudKey = useRef('');
+  const hudAt = useRef(0);
   const finished = useRef(false);
   const banner = useRef(new Animated.Value(0)).current;
   const [bannerText, setBannerText] = useState(cityName(CITIES[cityIndex]));
+  const coached = useRef(new Set<string>());
+  const slowmo = useRef(0);
+  const [hint, setHint] = useState<string | null>(null);
+  const hintAnim = useRef(new Animated.Value(0)).current;
+
+  const showHint = (text: string) => {
+    setHint(text);
+    hintAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(hintAnim, { toValue: 1, useNativeDriver: true, friction: 6 }),
+      Animated.delay(1500),
+      Animated.timing(hintAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
+    ]).start(({ finished: done }) => done && setHint(null));
+  };
+
+  // Looks ahead for the first crate, awning and car in your way and coaches the move, once each.
+  const coachAhead = (s: GameState) => {
+    if (!coach || s.phase !== 'run' || coached.current.size >= 3) return;
+    for (const e of s.entities) {
+      const key = COACH[e.kind];
+      if (!key || e.done || coached.current.has(key)) continue;
+      const d = e.z - e.depth / 2 - s.z;
+      if (d < 0 || d > 6 + s.speed * 0.55) continue;
+      if (e.kind === 'taxi' && Math.abs(e.x - s.x) > e.w + 0.5) continue; // only a car actually in the way
+      coached.current.add(key);
+      slowmo.current = SLOWMO;
+      showHint(t(key));
+      buzz('light');
+      return;
+    }
+  };
 
   pausedRef.current = paused;
   // Exposed on web only, so automated playtests can jump around a stage.
@@ -62,8 +132,13 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
   };
 
   const pop = (text: string, color: string, big = false) => {
-    popups.current.push({ id: popupId.current++, text, color, big, born: game.current.time });
+    popups.current = [...popups.current.slice(-5), { id: popupId.current++, text, color, big }];
+    hudDirty.current = true;
   };
+  const popDone = useRef((id: number) => {
+    popups.current = popups.current.filter((p) => p.id !== id);
+    render();
+  }).current;
 
   const handleEvent = (e: GameEvent) => {
     const s = game.current;
@@ -119,6 +194,16 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
       case 'city':
         showBanner(cityName(city(s)).toUpperCase());
         break;
+      case 'combo':
+        play('life');
+        pop(t('pop.combo', { n: e.n ?? 2 }), colors.gold, true);
+        buzz('success');
+        break;
+      case 'close':
+        play('slide');
+        pop(t('pop.close'), colors.mint, true);
+        buzz('light');
+        break;
       case 'clear':
       case 'over':
         play(e.type);
@@ -142,7 +227,10 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
         const wasAir = s.y > 0.05;
         const wasSlide = s.slide > 0;
         const stride = Math.floor(s.runPhase / Math.PI);
-        step(s, dt, input.current);
+        coachAhead(s);
+        const scale = slowmo.current > 0 ? SLOWMO_SCALE : 1;
+        slowmo.current = Math.max(0, slowmo.current - dt);
+        step(s, dt * scale, input.current);
         // Movement sounds come from state changes rather than engine events.
         const air = s.y > 0.05;
         if (!wasAir && air) play('jump');
@@ -158,19 +246,24 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
         input.current = { steer: 0, jump: false, slide: false };
         for (const e of s.events) handleEvent(e);
         s.events.length = 0;
-        popups.current = popups.current.filter((p) => s.time - p.born < 0.9);
         if ((s.phase === 'clear' || s.phase === 'over') && !finished.current) {
           finished.current = true;
           if (s.phase === 'clear') showBanner(t('banner.clear'));
           setTimeout(
-            () => onFinish({ mode, cityIndex, cleared: s.phase === 'clear', score: s.score, cans: s.cans, distance: Math.floor(s.z) }),
+            () => onFinish({ mode, cityIndex, cleared: s.phase === 'clear', score: s.score, cans: s.cans, distance: Math.floor(s.z), coached: coached.current.size >= 3 }),
             1500,
           );
         }
       }
       setMusicTempo(s.phase === 'chase' ? 1.12 : 1);
       gfx.current?.render(s);
-      render();
+      const key = `${s.cans}|${s.health}|${s.lives}|${s.phase}|${comboMultiplier(s)}|${Math.ceil(s.tajine)}|${Math.ceil(s.skate)}|${cityName(city(s))}`;
+      if (hudDirty.current || key !== hudKey.current || ts - hudAt.current > 66) {
+        hudDirty.current = false;
+        hudKey.current = key;
+        hudAt.current = ts;
+        render();
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -295,6 +388,7 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
           <View style={styles.pill}>
             <Bottle m={34} />
             <Text style={styles.pillText}>{fmt(s.cans)}</Text>
+            {comboMultiplier(s) > 1 && <Text style={styles.combo}>×{comboMultiplier(s)}</Text>}
           </View>
           <View style={[styles.pill, { gap: 4 }]}>
             {[0, 1, 2].map((i) => (
@@ -321,22 +415,18 @@ export function GameScreen({ mode, cityIndex, lite = false, onExit, onFinish }: 
         {s.skate > 0 && <Text style={styles.status}>{t('status.skate', { n: Math.ceil(s.skate) })}</Text>}
       </View>
 
-      {popups.current.map((p) => {
-        const age = s.time - p.born;
-        return (
-          <Text
-            key={p.id}
-            pointerEvents="none"
-            style={[
-              styles.popup,
-              p.big && styles.popupBig,
-              { color: p.color, top: H * (p.big ? 0.3 : 0.55) - age * 70, opacity: 1 - age / 0.9, transform: [{ scale: 1 + Math.min(age * 4, 0.3) }] },
-            ]}
-          >
-            {p.text}
-          </Text>
-        );
-      })}
+      {popups.current.map((p) => (
+        <PopupText key={p.id} p={p} top={H * (p.big ? 0.3 : 0.55)} onDone={popDone} />
+      ))}
+
+      {hint && (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.hint, { bottom: insets.bottom + 120, opacity: hintAnim, transform: [{ scale: hintAnim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) }] }]}
+        >
+          <Text style={styles.hintText}>{hint}</Text>
+        </Animated.View>
+      )}
 
       <Animated.View pointerEvents="none" style={[styles.banner, bannerStyle]}>
         <Text style={styles.bannerText}>{bannerText}</Text>
@@ -373,6 +463,9 @@ const styles = StyleSheet.create({
   hudRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   pill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(43,19,0,0.55)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
   pillText: { color: colors.white, fontWeight: '900', fontSize: 18 },
+  combo: { color: colors.ink, backgroundColor: colors.gold, fontWeight: '900', fontSize: 14, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, overflow: 'hidden' },
+  hint: { position: 'absolute', alignSelf: 'center', backgroundColor: 'rgba(43,19,0,0.8)', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 16, borderWidth: 2, borderColor: colors.gold, maxWidth: '88%' },
+  hintText: { color: colors.white, fontWeight: '900', fontSize: 20, textAlign: 'center' },
   pip: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: colors.white },
   pause: { marginLeft: 'auto', width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(43,19,0,0.55)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   pauseBar: { width: 5, height: 16, borderRadius: 2, backgroundColor: colors.white },

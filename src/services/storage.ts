@@ -19,6 +19,7 @@ export type SaveData = {
   local: Record<string, ScoreEntry[]>; // offline leaderboard per mode
   settings: Settings;
   reviewAsked?: boolean; // the store rating prompt is offered once
+  coached?: boolean; // the first-run control hints have been shown
 };
 
 export const defaultSettings: Settings = { sound: true, music: true, haptics: true, lang: 'auto', graphics: 'high' };

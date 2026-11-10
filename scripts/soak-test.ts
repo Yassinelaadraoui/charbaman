@@ -33,7 +33,7 @@ function play(mode: 'stage' | 'endless', cityIndex: number, seconds: number) {
     if (Math.abs(s.x) > 3.5) throw new Error(`left the street: x=${s.x}`);
     if (s.phase === 'clear' || s.phase === 'over') break;
   }
-  return { phase: s.phase, z: Math.round(s.z), time: Math.round(s.time), score: s.score, lives: s.lives, maxEntities };
+  return { phase: s.phase, z: Math.round(s.z), time: Math.round(s.time), score: s.score, bonus: s.bonus, close: s.closeCalls, lives: s.lives, maxEntities };
 }
 
 let failed = false;

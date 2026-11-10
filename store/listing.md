@@ -42,6 +42,7 @@ Steer freely across the whole street, jump crates of oranges, slide under market
 Every city ends with the chase: the giant Charba bottle rolls after you, and every hit lets it gain.
 
 • 5 city stages, unlocked one after another, plus an Endless mode that cycles through all of them
+• Bottle combos up to x5 and bonus points for brushing past traffic
 • Moroccan streets full of life: kids cheering, old men strolling, cats, chickens, pigeons and gulls
 • Original chiptune music with darbuka and qraqeb
 • Online leaderboards for every city
@@ -80,6 +81,7 @@ Dirige-toi librement dans toute la rue, saute les caisses d’oranges, glisse so
 Chaque ville finit par la poursuite : la Charba géante te roule après, et chaque coup la rapproche.
 
 • 5 villes à débloquer, plus un mode sans fin qui les enchaîne toutes
+• Combos de bouteilles jusqu’à x5 et bonus quand tu frôles la circulation
 • Des rues pleines de vie : enfants qui t’encouragent, vieux promeneurs, chats, poules, pigeons et goélands
 • Musique chiptune originale avec darbouka et qraqeb
 • Classements en ligne pour chaque ville
@@ -118,6 +120,7 @@ Chaque ville finit par la poursuite : la Charba géante te roule après, et chaq
 كل مدينة تنتهي بمطاردة: زجاجة الشربة العملاقة تتدحرج خلفك، وكل ضربة تقربها منك.
 
 • 5 مدن تُفتح واحدة بعد الأخرى، وطور جري بلا نهاية يمر بها كلها
+• كومبو القنينات حتى x5 ونقاط إضافية عندما تمر بجانب السيارات
 • شوارع مغربية نابضة بالحياة: أطفال يشجعون، شيوخ يتمشون، قطط ودجاج وحمام ونوارس
 • موسيقى أصلية بطابع الدربوكة والقراقب
 • لوحات متصدرين على الإنترنت لكل مدينة
