@@ -20,7 +20,7 @@ const en = {
   back: '‹ Back',
 
   chooseCity: 'Choose your city',
-  chooseCityHint: 'Clear a city to unlock the next. Every city ends with the giant Charba chase.',
+  chooseCityHint: 'Clear a city to unlock the next. Every city ends in a chase: watch your back in Marrakech.',
   stage: 'STAGE {n}',
   locked: '🔒 Clear the previous city',
   best: 'Best {n}',
@@ -49,7 +49,7 @@ const en = {
   'tip.tajine.head': 'Tajine',
   'tip.tajine.body': 'Lands on your head and flips your controls. Avoid it!',
   'tip.chase.head': 'The giant Charba',
-  'tip.chase.body': 'The end of every city is a chase. Get hit and it rolls closer. If it catches you, you lose a life.',
+  'tip.chase.body': 'The end of every city is a chase (in Marrakech, a police van). Get hit and it closes in. If it catches you, you lose a life.',
   'tip.combo.head': 'Combos and close calls',
   'tip.combo.body': 'Grab bottles in a row to raise your multiplier, up to x5. Brush past traffic without touching it for a bonus.',
 
@@ -116,7 +116,7 @@ const en = {
   about: 'About, credits & privacy',
   resetProgress: 'Reset progress',
   resetTitle: 'Reset progress?',
-  resetBody: 'This locks the cities again and clears your scores on this phone.',
+  resetBody: 'This locks the cities again and clears your scores, stars, bottles, suits and achievements on this phone.',
   cancel: 'Cancel',
   reset: 'Reset',
 
@@ -214,7 +214,7 @@ const fr: Record<Key, string> = {
   back: '‹ Retour',
 
   chooseCity: 'Choisis ta ville',
-  chooseCityHint: 'Termine une ville pour débloquer la suivante. Chaque ville finit par la poursuite de la Charba géante.',
+  chooseCityHint: 'Termine une ville pour débloquer la suivante. Chaque ville finit par une poursuite : méfie-toi à Marrakech.',
   stage: 'ÉTAPE {n}',
   locked: '🔒 Termine la ville précédente',
   best: 'Record {n}',
@@ -243,7 +243,7 @@ const fr: Record<Key, string> = {
   'tip.tajine.head': 'Tajine',
   'tip.tajine.body': 'Il tombe sur ta tête et inverse les commandes. Évite-le !',
   'tip.chase.head': 'La Charba géante',
-  'tip.chase.body': 'Chaque ville finit par une poursuite. Chaque coup la rapproche. Si elle te rattrape, tu perds une vie.',
+  'tip.chase.body': 'Chaque ville finit par une poursuite (à Marrakech, une fourgonnette de police). Chaque coup la rapproche. Si elle te rattrape, tu perds une vie.',
   'tip.combo.head': 'Combos et frôlements',
   'tip.combo.body': 'Enchaîne les bouteilles pour monter le multiplicateur, jusqu’à x5. Frôle la circulation sans la toucher pour un bonus.',
 
@@ -310,7 +310,7 @@ const fr: Record<Key, string> = {
   about: 'À propos, crédits et confidentialité',
   resetProgress: 'Réinitialiser la progression',
   resetTitle: 'Réinitialiser ?',
-  resetBody: 'Les villes seront de nouveau verrouillées et tes scores sur ce téléphone effacés.',
+  resetBody: 'Les villes seront de nouveau verrouillées, et tes scores, étoiles, bouteilles, tenues et succès sur ce téléphone effacés.',
   cancel: 'Annuler',
   reset: 'Réinitialiser',
 
@@ -406,7 +406,7 @@ const ar: Record<Key, string> = {
   back: '‹ رجوع',
 
   chooseCity: 'اختر مدينتك',
-  chooseCityHint: 'أكمل مدينة لتفتح التالية. كل مدينة تنتهي بمطاردة زجاجة الشربة العملاقة.',
+  chooseCityHint: 'أكمل مدينة لتفتح التالية. كل مدينة تنتهي بمطاردة، واحذر في مراكش.',
   stage: 'المرحلة {n}',
   locked: '🔒 أكمل المدينة السابقة',
   best: 'الأفضل {n}',
@@ -435,7 +435,7 @@ const ar: Record<Key, string> = {
   'tip.tajine.head': 'الطاجين',
   'tip.tajine.body': 'يسقط على رأسك ويعكس التحكم. تجنبه!',
   'tip.chase.head': 'الشربة العملاقة',
-  'tip.chase.body': 'نهاية كل مدينة مطاردة. كل ضربة تقربها منك. إذا أمسكتك تخسر حياة.',
+  'tip.chase.body': 'نهاية كل مدينة مطاردة (في مراكش سيارة شرطة). كل ضربة تقربها منك. إذا أمسكتك تخسر حياة.',
   'tip.combo.head': 'كومبو ونجاة بأعجوبة',
   'tip.combo.body': 'اجمع القنينات بلا توقف لترفع المضاعف حتى x5. مرّ بجانب السيارات دون أن تلمسها لتربح مكافأة.',
 
@@ -502,7 +502,7 @@ const ar: Record<Key, string> = {
   about: 'حول اللعبة والحقوق والخصوصية',
   resetProgress: 'إعادة ضبط التقدم',
   resetTitle: 'إعادة ضبط التقدم؟',
-  resetBody: 'ستُقفل المدن من جديد وتُمحى نتائجك على هذا الهاتف.',
+  resetBody: 'ستُقفل المدن من جديد وتُمحى نتائجك ونجومك وزجاجاتك وبدلاتك وإنجازاتك على هذا الهاتف.',
   cancel: 'إلغاء',
   reset: 'إعادة الضبط',
 
