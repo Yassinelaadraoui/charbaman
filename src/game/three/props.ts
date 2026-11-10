@@ -462,14 +462,14 @@ export function entityObject(e: Entity, c: City): THREE.Object3D {
 
 // Roadside scenery: house facades, palms, lamps and flags.
 function build_house(c: City, variant: number, side: number) {
-  // A Moroccan town house, 2 to 4 storeys: shops or a carved door on the ground floor, framed windows with
+  // A Moroccan town house, 2 or 3 storeys: shops or a carved door on the ground floor, framed windows with
   // shutters and the odd balcony above, a parapet roof with a satellite dish or a water tank. Built from
   // boxes, then merged by flat() into one or two meshes.
   const g = new THREE.Group();
   const W = 6.6; // along the street
   const D = 4; // away from it
   const v = (k: number) => Math.floor(hashN(variant * 7 + side * 3 + k) * 1000);
-  const floors = 2 + (variant % 3);
+  const floors = 2 + (variant % 2); // 2 or 3 storeys, low enough to leave the skyline landmarks in view
   const GROUND = 3.2;
   const STOREY = 2.9;
   const H = GROUND + (floors - 1) * STOREY;
@@ -484,7 +484,8 @@ function build_house(c: City, variant: number, side: number) {
   g.add(box(D, H, W, tone, 0, H / 2));
   f(W, 0.55, 0.06, dark, 0.27, 0); // plinth
   // Ground floor: two bays, each a shop (dark opening, half-raised shutter, striped awning) or a door.
-  const AWNINGS = [c.accent, 0xc1272d, 0x2d6a4f, 0xe9c46a];
+  // Shop awnings: mostly glazed green tile like the city's trims, now and then canvas.
+  const AWNINGS = [c.accent, c.accent, 0x2d6a4f, c.accent, 0xc1272d, 0xe9c46a];
   for (const [k, z] of [[0, -1.65], [1, 1.65]] as const) {
     if (v(k) % 3 !== 0) {
       f(2.4, 2.5, 0.04, 0x2a2420, 1.35, z);
@@ -496,6 +497,11 @@ function build_house(c: City, variant: number, side: number) {
       f(1.6, 2.7, 0.03, c.accent, 1.35, z); // tiled surround
       f(1.1, 2.3, 0.06, 0x6b3e1f, 1.15, z); // carved wooden door
       f(0.08, 0.08, 0.1, 0xd4a017, 1.2, z + 0.35); // knocker
+      // A little roof of green glazed tiles over the door, on carved beams.
+      const canopy = box(0.75, 0.14, 2.1, c.accent, fx - side * 0.36, 2.95, z);
+      canopy.rotation.z = side * 0.35;
+      g.add(canopy);
+      for (const bz of [-0.8, 0.8]) f(0.1, 0.1, 0.55, 0x5c3a1e, 2.8, z + bz);
     }
   }
   // Upper storeys.
@@ -515,9 +521,13 @@ function build_house(c: City, variant: number, side: number) {
       f(2.4, 0.75, 0.05, 0x2b2b2b, y0 + 1.0, 0, 0.7); // wrought-iron rail
     }
   }
-  // Roof: a parapet with the top course stepped, and what Moroccan roofs always carry.
+  // Roof: a parapet capped with the city's coloured tiles, a tiled eave under it, and what Moroccan roofs
+  // always carry.
   f(W, 0.5, 0.28, tone, H + 0.25, 0);
-  f(W, 0.08, 0.34, frame, H + 0.52, 0);
+  g.add(box(D + 0.12, 0.3, W + 0.12, c.accent, 0, H + 0.62)); // tiled cap all round
+  const eave = box(0.6, 0.12, W, c.accent, fx - side * 0.28, H - 0.12, 0);
+  eave.rotation.z = side * 0.4;
+  g.add(eave);
   if (v(40) % 2) {
     const post = box(0.06, 0.6, 0.06, 0x888888, side * 0.4, H + 0.3, v(41) % 2 ? -1.8 : 1.8);
     const dish = cyl(0.42, 0.42, 0.05, 10, 0xeeeeee, side * 0.3, H + 0.7, post.position.z);

@@ -250,13 +250,16 @@ export class GameRenderer {
       const w = 10 + r * 16;
       const h = 8 + hash(c.seed * 200 + i) * 22;
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 10), mat(i % 2 ? c.far : '#' + shadeHex(c.far, -8).toString(16).padStart(6, '0')));
-      b.position.set(-300 + i * 15 + r * 6, h / 2, -150 - hash(i + 7) * 30);
+      b.position.set(-300 + i * 15 + r * 6, h / 2, -225 - hash(i + 7) * 30); // behind the landmarks
       this.skyline.add(b);
     }
     c.landmarks.forEach((lm, j) => {
       const l = landmark(lm, c);
+      if (lm !== 'mosque') l.scale.setScalar(1.4); // further back than before, so a little bigger
       // The first landmark is the city's signature one, so it stands straight ahead.
-      l.position.set([0, -80, 80, -160][j % 4] + hash(c.seed + j) * 20, 0, -135 - (j % 2) * 15);
+      // Far enough back that even the tallest (the Hassan II minaret) fits under the HUD with the camera
+      // looking down the street.
+      l.position.set([-4, -85, 85, -160][j % 4] + hash(c.seed + j) * (j ? 20 : 8), 0, -195 - (j % 2) * 15);
       this.skyline.add(l);
     });
     // One draw call for all the far blocks instead of forty.
@@ -350,7 +353,8 @@ export class GameRenderer {
 
     // Sky and skyline turn with the street.
     this.sky.position.set(this.camera.position.x, 0, this.camera.position.z);
-    this.skyline.position.x = -curveIntegral(s.z) * 120 - camX * 0.3;
+    // Gently, so the city's landmark stays in view down the street as the road bends.
+    this.skyline.position.x = -curveIntegral(s.z) * 45 - camX * 0.3;
     this.skyline.position.z = this.camera.position.z;
 
     this.buildRoad(s, c, bend);
@@ -428,7 +432,7 @@ export class GameRenderer {
         const shelter = !warn && r3 < 0.07 && kind !== 'spice';
         const clear = !shelter && kind !== 'spice' && !this.lite; // room on the pavement for small props
         const variant = Math.floor(r * 6);
-        if (hasModelHouses(c) && r2 < 0.5) {
+        if (hasModelHouses(c) && r2 < 0.6) {
           // Facade on the pavement line, the rest of the house behind it.
           const h = this.use(`m${i}${side}`, () => {
             const mh = modelHouse(c, variant, side);
