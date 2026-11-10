@@ -6,11 +6,46 @@ import { Bottle } from '../game/sprites';
 import { Button } from '../components/ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme';
-import { t } from '../i18n';
+import { Key, fmt, t } from '../i18n';
+import { dailyChallenges, today } from '../game/progression';
 
-type Props = { onStory: () => void; onEndless: () => void; onLeaderboard: () => void; onHowTo: () => void; onSettings: () => void; best: number };
+type Props = {
+  onStory: () => void;
+  onEndless: () => void;
+  onLeaderboard: () => void;
+  onHowTo: () => void;
+  onSettings: () => void;
+  onShop: () => void;
+  onAchievements: () => void;
+  best: number;
+  wallet: number;
+  daily: { date: string; done: string[] };
+};
 
-export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, onSettings, best }: Props) {
+// Today's three challenges, ticked off as they are met.
+function Daily({ daily }: { daily: Props['daily'] }) {
+  const date = today();
+  const done = daily.date === date ? daily.done : [];
+  return (
+    <View style={styles.daily}>
+      <Text style={styles.dailyTitle}>{t('daily.title')}</Text>
+      {dailyChallenges(date).map((c) => {
+        const ok = done.includes(c.id);
+        return (
+          <View key={c.id} style={styles.dailyRow}>
+            <Text style={[styles.dailyText, ok && styles.dailyDone]} numberOfLines={1}>
+              {ok ? '✓ ' : '• '}
+              {t(`ch.${c.kind}` as Key, { n: fmt(c.goal) })}
+            </Text>
+            <Text style={styles.dailyReward}>{ok ? t('daily.done') : `+${c.reward}`}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, onSettings, onShop, onAchievements, best, wallet, daily }: Props) {
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState(0);
   const bounce = useRef(new Animated.Value(0)).current;
@@ -64,8 +99,10 @@ export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, onSett
           </View>
         ))}
         <View style={styles.heroShadow} />
-        <CharbaSprite height={250} />
+        <CharbaSprite height={190} />
       </View>
+
+      <Daily daily={daily} />
 
       <View style={styles.menu}>
         <Button label={t('playCities')} variant="light" onPress={onStory} />
@@ -73,6 +110,10 @@ export function TitleScreen({ onStory, onEndless, onLeaderboard, onHowTo, onSett
         <View style={styles.row}>
           <Button label={t('scores')} variant="ghost" onPress={onLeaderboard} style={styles.third} />
           <Button label={t('howTo')} variant="ghost" onPress={onHowTo} style={styles.third} />
+        </View>
+        <View style={styles.row}>
+          <Button label={`${t('shop')} · ${fmt(wallet)}`} variant="ghost" onPress={onShop} style={styles.third} />
+          <Button label={t('achievements')} variant="ghost" onPress={onAchievements} style={styles.third} />
         </View>
         <Button label={t('settings')} variant="ghost" onPress={onSettings} style={styles.wide} />
         {best > 0 && <Text style={styles.best}>{t('endlessBest', { n: best })}</Text>}
@@ -89,12 +130,18 @@ const styles = StyleSheet.create({
   logo: { fontSize: 48, fontWeight: '900', color: colors.white, letterSpacing: 1, fontStyle: 'italic' },
   logoShadow: { position: 'absolute', top: 5, left: 5, fontSize: 48, fontWeight: '900', color: colors.ink, letterSpacing: 1, fontStyle: 'italic', opacity: 0.35 },
   sub: { marginTop: 6, color: colors.cream, fontWeight: '800', fontSize: 14, textAlign: 'center' },
-  heroStage: { alignItems: 'center', justifyContent: 'flex-end', height: 260, width: '100%' },
+  heroStage: { alignItems: 'center', justifyContent: 'flex-end', height: 200, width: '100%' },
+  daily: { width: '100%', maxWidth: 380, backgroundColor: 'rgba(43,19,0,0.35)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8, gap: 2 },
+  dailyTitle: { color: colors.gold, fontWeight: '900', fontSize: 13, letterSpacing: 1, marginBottom: 2 },
+  dailyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dailyText: { flex: 1, color: colors.white, fontWeight: '700', fontSize: 13 },
+  dailyDone: { opacity: 0.6, textDecorationLine: 'line-through' },
+  dailyReward: { color: colors.gold, fontWeight: '900', fontSize: 13 },
   heroShadow: { position: 'absolute', bottom: -6, width: 150, height: 22, borderRadius: 60, backgroundColor: 'rgba(0,0,0,0.2)' },
   floatBottle: { position: 'absolute', top: 0 },
-  menu: { alignItems: 'center', gap: 12, width: '100%' },
+  menu: { alignItems: 'center', gap: 10, width: '100%' },
   row: { flexDirection: 'row', gap: 10 },
-  third: { minWidth: 115, paddingHorizontal: 12 },
+  third: { minWidth: 115, paddingHorizontal: 12, paddingVertical: 11 },
   wide: { minWidth: 240, paddingVertical: 10 },
   best: { color: colors.cream, fontWeight: '800', marginTop: 4 },
 });

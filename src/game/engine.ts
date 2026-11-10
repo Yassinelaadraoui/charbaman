@@ -26,6 +26,11 @@ const CAN_POINTS = 50;
 // Brushing past traffic without touching it is worth a bonus.
 const CLOSE_MARGIN = 0.5;
 const CLOSE_POINTS = 100;
+const DASH_TIME = 0.75;
+const DASH_COOLDOWN = 2.5;
+const MAGNET_TIME = 8;
+const SHIELD_TIME = 12;
+const MAGNET_REACH = 4.5;
 
 export type EntityKind =
   | 'can'
@@ -38,6 +43,8 @@ export type EntityKind =
   | 'checkpoint'
   | 'tajine'
   | 'skate'
+  | 'magnet'
+  | 'shield'
   | 'finish';
 
 export type Entity = {
@@ -75,7 +82,11 @@ export type GameEvent = {
     | 'over'
     | 'city'
     | 'combo'
-    | 'close';
+    | 'close'
+    | 'dash'
+    | 'magnet'
+    | 'shield'
+    | 'shieldBreak';
   n?: number; // combo multiplier
   x?: number;
   z?: number;
@@ -116,6 +127,15 @@ export type GameState = {
   comboTimer: number; // seconds left to grab the next one
   bonus: number; // points from combo multipliers and near misses
   closeCalls: number;
+  hits: number; // hits taken this run (for the three-star "no hits" goal)
+  cansTotal: number; // bottles laid out in the stage so far (for the bottles star)
+  maxCombo: number;
+  usedSkate: boolean;
+  powerups: number; // magnets and shields picked up
+  dash: number; // seconds of dash left (swipe up while sliding)
+  dashCool: number;
+  magnet: number; // seconds of bottle magnet left
+  shield: number; // seconds of shield left; it takes one hit
   events: GameEvent[];
   nextId: number;
 };
@@ -187,6 +207,15 @@ export function createGame(mode: GameMode, cityIndex = 0): GameState {
     comboTimer: 0,
     bonus: 0,
     closeCalls: 0,
+    hits: 0,
+    cansTotal: 0,
+    maxCombo: 1,
+    usedSkate: false,
+    powerups: 0,
+    dash: 0,
+    dashCool: 0,
+    magnet: 0,
+    shield: 0,
     events: [],
     nextId: 1,
   };
@@ -208,6 +237,7 @@ function add(s: GameState, e: Partial<Entity> & { kind: EntityKind; z: number })
     ...e,
   };
   s.entities.push(base);
+  if (e.kind === 'can') s.cansTotal += 1;
   return base;
 }
 
@@ -311,8 +341,9 @@ function generate(s: GameState, upTo: number) {
       continue;
     }
     if (z >= s.nextPowerup) {
-      const good = rand(s) < 0.55;
-      add(s, { kind: good ? 'skate' : 'tajine', z, x: laneX(s), y: 0.3, w: 0.5, h: 0.6, depth: 1.2 });
+      const r = rand(s);
+      const kind: EntityKind = r < 0.32 ? 'skate' : r < 0.52 ? 'magnet' : r < 0.72 ? 'shield' : 'tajine';
+      add(s, { kind, z, x: laneX(s), y: 0.3, w: 0.5, h: 0.6, depth: 1.2 });
       s.nextPowerup += range(s, 200, 320);
       s.genZ += 10;
       continue;
@@ -373,6 +404,15 @@ export const comboMultiplier = (s: GameState) => Math.min(COMBO_MAX, 1 + Math.fl
 function hit(s: GameState, e: Entity) {
   e.done = true;
   if (s.invuln > 0) return;
+  if (s.shield > 0) {
+    // The shield takes the knock and breaks; nothing else is lost.
+    s.shield = 0;
+    s.invuln = 1;
+    s.shake = 0.2;
+    s.events.push({ type: 'shieldBreak', x: e.x, z: e.z });
+    return;
+  }
+  s.hits += 1;
   s.combo = 0;
   s.events.push({ type: 'hit', x: e.x, z: e.z });
   s.shake = 0.35;
@@ -393,7 +433,8 @@ export function start(s: GameState) {
   if (s.phase === 'ready') s.phase = 'run';
 }
 
-export function step(s: GameState, dtRaw: number, input: Input) {
+export function step(s: GameState, dtRaw: number, inputRaw: Input) {
+  let input = inputRaw;
   const dt = Math.min(dtRaw, 1 / 30);
   if (s.phase === 'ready' || s.phase === 'over' || s.phase === 'clear') {
     s.runPhase += dt * 2;
@@ -407,6 +448,10 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   s.shake = Math.max(0, s.shake - dt);
   s.stun = Math.max(0, s.stun - dt);
   s.comboTimer = Math.max(0, s.comboTimer - dt);
+  s.dash = Math.max(0, s.dash - dt);
+  s.dashCool = Math.max(0, s.dashCool - dt);
+  s.magnet = Math.max(0, s.magnet - dt);
+  s.shield = Math.max(0, s.shield - dt);
   if (s.comboTimer === 0) s.combo = 0;
 
   // Speed: ramps up through a stage, faster in the chase and on a skateboard.
@@ -414,7 +459,8 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   let target = c.baseSpeed + progress(s) * 2.5 + endlessBoost;
   if (s.phase === 'chase') target += 3;
   if (s.skate > 0) target += 5;
-  const accel = s.stun > 0 ? 0 : 9;
+  if (s.dash > 0) target += 8;
+  const accel = s.stun > 0 ? 0 : s.dash > 0 ? 30 : 9;
   s.speed += Math.sign(target - s.speed) * Math.min(Math.abs(target - s.speed), accel * dt);
 
   // Free lateral steering, like the analog stick in the original. The tajine on
@@ -424,6 +470,14 @@ export function step(s: GameState, dtRaw: number, input: Input) {
 
   const grounded = s.y <= 0.0001;
   // A jump pressed a moment before landing is kept and fires on touchdown.
+  // Swipe up while sliding: a low dash forward instead of a jump.
+  if (input.jump && grounded && s.slide > 0 && s.dashCool === 0) {
+    s.dash = DASH_TIME;
+    s.dashCool = DASH_COOLDOWN;
+    s.slide = DASH_TIME;
+    s.events.push({ type: 'dash' });
+    input = { ...input, jump: false };
+  }
   s.jumpBuffer = input.jump ? JUMP_BUFFER : Math.max(0, s.jumpBuffer - dt);
   if (s.jumpBuffer > 0 && grounded) {
     s.vy = JUMP_V;
@@ -431,7 +485,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
     s.jumpBuffer = 0;
   }
   if (input.slide) {
-    if (grounded) s.slide = SLIDE_TIME;
+    if (grounded) s.slide = Math.max(s.slide, SLIDE_TIME);
     else s.vy = Math.min(s.vy, -JUMP_V); // slam down, then slide on landing
   }
   if (!grounded || s.vy > 0) {
@@ -448,6 +502,17 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   s.z += s.speed * dt;
   s.runPhase += dt * (s.speed / 1.6);
 
+  if (s.magnet > 0) {
+    // Bottles and notes ahead drift toward you.
+    for (const e of s.entities) {
+      if (e.done || (e.kind !== 'can' && e.kind !== 'cash')) continue;
+      const d = e.z - s.z;
+      if (d < 0 || d > 14 || Math.abs(e.x - s.x) > MAGNET_REACH) continue;
+      const k = Math.min(1, dt * 8);
+      e.x += (s.x - e.x) * k;
+      e.y += (s.y + 0.6 - e.y) * k;
+    }
+  }
   for (const e of s.entities) {
     if (e.vx) {
       e.x += e.vx * dt;
@@ -480,6 +545,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           s.combo += 1;
           s.comboTimer = COMBO_WINDOW;
           const mult = comboMultiplier(s);
+          s.maxCombo = Math.max(s.maxCombo, mult);
           s.bonus += CAN_POINTS * (mult - 1);
           s.events.push({ type: 'can', x: e.x, z: e.z });
           if (mult > before) s.events.push({ type: 'combo', n: mult });
@@ -507,6 +573,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           e.done = true;
           s.skate = 6;
           s.tajine = 0;
+          s.usedSkate = true;
           s.events.push({ type: 'skate' });
         }
         break;
@@ -516,6 +583,16 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           s.tajine = 5;
           s.skate = 0;
           s.events.push({ type: 'tajine' });
+        }
+        break;
+      case 'magnet':
+      case 'shield':
+        if (s.y < 1) {
+          e.done = true;
+          if (e.kind === 'magnet') s.magnet = MAGNET_TIME;
+          else s.shield = SHIELD_TIME;
+          s.powerups += 1;
+          s.events.push({ type: e.kind });
         }
         break;
       case 'finish':
@@ -563,4 +640,12 @@ export function scoreOf(s: GameState, cleared: boolean) {
 
 export function playerHeight(s: GameState) {
   return standHeight(s);
+}
+
+// Stars for a cleared stage: one for clearing it, one for grabbing at least 70% of its bottles, one for
+// taking no hits.
+export const BOTTLE_STAR_SHARE = 0.7;
+export function starsOf(s: GameState) {
+  if (s.phase !== 'clear') return 0;
+  return 1 + (s.cansTotal > 0 && s.cans >= s.cansTotal * BOTTLE_STAR_SHARE ? 1 : 0) + (s.hits === 0 ? 1 : 0);
 }

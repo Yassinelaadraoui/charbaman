@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RIGGED_HERO } from './heroRigged';
 import { base64ToBytes, bakedTexture, normals } from './models/decode';
 import { tajinePickup } from './props';
+import type { Suit } from '../progression';
 
 export type HeroRig = {
   root: THREE.Group; // faces -z (away from the camera), feet at y=0
@@ -186,6 +187,45 @@ function driveSkin(rig: HeroRig, runPhase: number) {
   k.head.getWorldPosition(tmpV);
   rig.root.worldToLocal(tmpV);
   rig.tajine.position.set(tmpV.x, tmpV.y + 0.12, tmpV.z);
+}
+
+// Re-dyes the suit: the atlas is flat colours (orange suit, white trim, grey shading, navy), so orange pixels
+// take the suit's main colour and, for suits that have one, white pixels take its trim, each keeping their
+// brightness so the anti-aliased edges still blend.
+const suitMaps = new Map<string, THREE.Texture>();
+export function dressHero(rig: HeroRig, suit: Suit) {
+  if (suit.id === 'classic') return; // a new rig already wears the classic suit
+  let map = suitMaps.get(suit.id);
+  if (!map) {
+    const [mr, mg, mb] = suit.main;
+    const trim = suit.trim;
+    map = bakedTexture({ size: [], min: [], span: [], pos: '', uv: '', atlas: RIGGED_HERO.atlas ?? 1024, jpeg: RIGGED_HERO.jpeg }, (px, i) => {
+      const r = px[i];
+      const g = px[i + 1];
+      const b = px[i + 2];
+      const orange = r - b; // 255 for the suit, about 0 for white, grey and navy
+      if (orange > 60) {
+        const k = Math.min(1, orange / 255);
+        const lum = r / 255;
+        px[i] = Math.round((mr * lum) * k + r * (1 - k));
+        px[i + 1] = Math.round((mg * lum) * k + g * (1 - k));
+        px[i + 2] = Math.round((mb * lum) * k + b * (1 - k));
+      } else if (trim && r > 225 && g > 225 && b > 215) {
+        const lum = (r + g + b) / 765;
+        px[i] = Math.round(trim[0] * lum);
+        px[i + 1] = Math.round(trim[1] * lum);
+        px[i + 2] = Math.round(trim[2] * lum);
+      }
+    });
+    suitMaps.set(suit.id, map);
+  }
+  rig.body.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (m.isSkinnedMesh) {
+      (m.material as THREE.MeshLambertMaterial).map = map!;
+      (m.material as THREE.MeshLambertMaterial).needsUpdate = true;
+    }
+  });
 }
 
 export function buildHero(): HeroRig {

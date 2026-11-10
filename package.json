@@ -40,7 +40,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/names-test.ts && tsx scripts/soak-test.ts"
+    "test": "tsx scripts/names-test.ts && tsx scripts/progression-test.ts && tsx scripts/soak-test.ts"
   },
   "private": true
 }

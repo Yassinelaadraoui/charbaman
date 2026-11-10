@@ -1,12 +1,21 @@
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 
-// Two original loops from scripts/compose-music.py: a calm one for the menus and a fast one for running.
-// In the chase the run theme speeds up.
+// Original loops from scripts/compose-music.py: a calm one for the menus and a fast one for running, which
+// each city plays in its own key and tempo (Casablanca and Endless use the plain one). In the chase the run
+// theme speeds up.
 const FILES = {
   menu: require('../../assets/music/menu.m4a'),
   run: require('../../assets/music/run.m4a'),
+  'run-rabat': require('../../assets/music/run-rabat.m4a'),
+  'run-safi': require('../../assets/music/run-safi.m4a'),
+  'run-agadir': require('../../assets/music/run-agadir.m4a'),
+  'run-marrakech': require('../../assets/music/run-marrakech.m4a'),
+  'run-fes': require('../../assets/music/run-fes.m4a'),
+  'run-chefchaouen': require('../../assets/music/run-chefchaouen.m4a'),
+  'run-tangier': require('../../assets/music/run-tangier.m4a'),
 };
-type Track = keyof typeof FILES;
+export type Track = keyof typeof FILES;
+export const runTrack = (cityId?: string): Track => (cityId && `run-${cityId}` in FILES ? (`run-${cityId}` as Track) : 'run');
 
 const VOLUME = 0.45;
 const players: Partial<Record<Track, AudioPlayer>> = {};

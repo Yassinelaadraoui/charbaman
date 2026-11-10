@@ -115,3 +115,22 @@ export function blobTexture() {
   t.needsUpdate = true;
   return t;
 }
+
+// A soft white glow, for lamp halos at night (drawn additively, tinted by the material).
+export function glowTexture() {
+  const S = 64;
+  const data = new Uint8Array(S * S * 4);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const r = Math.min(1, Math.hypot((x + 0.5) / S - 0.5, (y + 0.5) / S - 0.5) * 2);
+      const i = (y * S + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+      data[i + 3] = Math.round(Math.pow(1 - r, 2) * 255);
+    }
+  }
+  const t = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}

@@ -4,7 +4,8 @@ import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CITIES } from '../game/cities';
-import { EntityKind, GameEvent, GameMode, GameState, Input, ROAD_HALF, city, comboMultiplier, createGame, progress, start, step } from '../game/engine';
+import { EntityKind, GameEvent, GameMode, GameState, Input, ROAD_HALF, city, comboMultiplier, createGame, progress, start, starsOf, step } from '../game/engine';
+import { RunStats, Suit, SUITS } from '../game/progression';
 import { GLView } from 'expo-gl';
 import { GameRenderer } from '../game/three/scene';
 import { Bottle } from '../game/sprites';
@@ -13,9 +14,9 @@ import { hapticsOn, initSounds, play } from '../services/sound';
 import { setMusicTempo } from '../services/music';
 import { cityName, fmt, t } from '../i18n';
 
-export type RunResult = { mode: GameMode; cityIndex: number; cleared: boolean; score: number; cans: number; distance: number; coached: boolean };
+export type RunResult = RunStats & { coached: boolean };
 
-type Props = { mode: GameMode; cityIndex: number; lite?: boolean; coach?: boolean; onExit: () => void; onFinish: (r: RunResult) => void };
+type Props = { mode: GameMode; cityIndex: number; lite?: boolean; coach?: boolean; suit?: Suit; onExit: () => void; onFinish: (r: RunResult) => void };
 
 type Popup = { id: number; text: string; color: string; big?: boolean };
 
@@ -65,7 +66,7 @@ const buzz = (kind: 'light' | 'heavy' | 'success') => {
   else Haptics.impactAsync(kind === 'heavy' ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 };
 
-export function GameScreen({ mode, cityIndex, lite = false, coach = false, onExit, onFinish }: Props) {
+export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit = SUITS[0], onExit, onFinish }: Props) {
   const { width: W, height: H } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const gfx = useRef<GameRenderer | null>(null);
@@ -167,7 +168,7 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, onExi
         buzz('success');
         break;
       case 'lifeLost':
-        showBanner(s.phase === 'chase' ? t('banner.crushed') : t('banner.checkpoint'));
+        showBanner(s.phase === 'chase' ? t(city(s).chaser === 'police' ? 'banner.caught' : 'banner.crushed') : t('banner.checkpoint'));
         buzz('heavy');
         break;
       case 'checkpoint':
@@ -188,11 +189,35 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, onExi
         break;
       case 'chase':
         play('chase');
-        showBanner(t('banner.chase'));
+        showBanner(t(city(s).chaser === 'police' ? 'banner.police' : 'banner.chase'));
         buzz('heavy');
         break;
       case 'city':
         showBanner(cityName(city(s)).toUpperCase());
+        break;
+      case 'dash':
+        play('skate');
+        gfx.current?.burst('skate', s.x, 0.3, s.z);
+        pop(t('pop.dash'), colors.gold);
+        buzz('light');
+        break;
+      case 'magnet':
+        play('skate');
+        gfx.current?.burst('skate', s.x, 0.8, s.z);
+        pop(t('pop.magnet'), colors.danger, true);
+        buzz('success');
+        break;
+      case 'shield':
+        play('life');
+        gfx.current?.burst('cash', s.x, 0.8, s.z);
+        pop(t('pop.shield'), colors.mint, true);
+        buzz('success');
+        break;
+      case 'shieldBreak':
+        play('hit');
+        gfx.current?.burst('cash', s.x, 1, s.z + 0.5);
+        pop(t('pop.shieldBreak'), colors.mint, true);
+        buzz('heavy');
         break;
       case 'combo':
         play('life');
@@ -250,14 +275,29 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, onExi
           finished.current = true;
           if (s.phase === 'clear') showBanner(t('banner.clear'));
           setTimeout(
-            () => onFinish({ mode, cityIndex, cleared: s.phase === 'clear', score: s.score, cans: s.cans, distance: Math.floor(s.z), coached: coached.current.size >= 3 }),
+            () =>
+              onFinish({
+                mode,
+                cityIndex,
+                cleared: s.phase === 'clear',
+                score: s.score,
+                cans: s.cans,
+                distance: Math.floor(s.z),
+                stars: s.phase === 'clear' ? starsOf(s) : 0,
+                hits: s.hits,
+                closeCalls: s.closeCalls,
+                maxCombo: s.maxCombo,
+                usedSkate: s.usedSkate,
+                powerups: s.powerups,
+                coached: coached.current.size >= 3,
+              }),
             1500,
           );
         }
       }
       setMusicTempo(s.phase === 'chase' ? 1.12 : 1);
       gfx.current?.render(s);
-      const key = `${s.cans}|${s.health}|${s.lives}|${s.phase}|${comboMultiplier(s)}|${Math.ceil(s.tajine)}|${Math.ceil(s.skate)}|${cityName(city(s))}`;
+      const key = `${s.cans}|${s.health}|${s.lives}|${s.phase}|${comboMultiplier(s)}|${Math.ceil(s.tajine)}|${Math.ceil(s.skate)}|${Math.ceil(s.magnet)}|${Math.ceil(s.shield)}|${cityName(city(s))}`;
       if (hudDirty.current || key !== hudKey.current || ts - hudAt.current > 66) {
         hudDirty.current = false;
         hudKey.current = key;
@@ -378,6 +418,7 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, onExi
         onContextCreate={(gl) => {
           gfx.current = new GameRenderer(gl as unknown as WebGLRenderingContext, W, H, () => gl.endFrameEXP());
           gfx.current.lite = lite;
+          gfx.current.dress(suit);
           if (Platform.OS === 'web') (globalThis as { __charbaGfx?: GameRenderer }).__charbaGfx = gfx.current;
         }}
       />
@@ -413,6 +454,8 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, onExi
         )}
         {s.tajine > 0 && <Text style={styles.status}>{t('status.tajine', { n: Math.ceil(s.tajine) })}</Text>}
         {s.skate > 0 && <Text style={styles.status}>{t('status.skate', { n: Math.ceil(s.skate) })}</Text>}
+        {s.magnet > 0 && <Text style={styles.status}>{t('status.magnet', { n: Math.ceil(s.magnet) })}</Text>}
+        {s.shield > 0 && <Text style={styles.status}>{t('status.shield', { n: Math.ceil(s.shield) })}</Text>}
       </View>
 
       {popups.current.map((p) => (

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type { City } from '../cities';
 import { Entity, GameState, ROAD_HALF, chaseStart, city as cityOf } from '../engine';
-import { buildHero, HeroRig, poseHero } from './hero';
+import { buildHero, dressHero, HeroRig, poseHero } from './hero';
+import type { Suit } from '../progression';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
-import { asphaltTexture, blobTexture, paverTexture } from './surfaces';
-import { entityObject, flatten, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
+import { asphaltTexture, blobTexture, glowTexture, paverTexture } from './surfaces';
+import { entityObject, flatten, flag, giantBottle, policeChaser, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -23,6 +24,9 @@ const DECOR: Record<string, string[]> = {
   marrakech: ['palm', 'stall', 'lamp', 'spice', 'flag', 'stall'],
   fes: ['maple', 'lamp', 'stall', 'spice', 'flag'],
   tangier: ['maple', 'lamp', 'palm', 'flag'],
+  rabat: ['palm', 'lamp', 'lamp', 'flag'],
+  agadir: ['palm', 'palm', 'lamp', 'flag'],
+  chefchaouen: ['maple', 'lamp', 'flag', 'lamp'],
 };
 
 const curvature = (z: number) => 0.0028 * Math.sin(z / 150 + 1.3) + 0.0013 * Math.sin(z / 61);
@@ -65,6 +69,9 @@ export class GameRenderer {
   hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
   giant: THREE.Group;
+  police: THREE.Group;
+  bubble: THREE.Mesh; // the shield, a faint green bubble round the hero
+  private dustAt = 0;
   pool = new Map<string, Pooled>();
   particles: Particle[] = [];
   spriteMats = new Map<string, THREE.SpriteMaterial>();
@@ -157,6 +164,19 @@ export class GameRenderer {
     this.giant = giantBottle();
     this.giant.visible = false;
     this.scene.add(this.giant);
+    this.bubble = new THREE.Mesh(
+      new THREE.SphereGeometry(1.05, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x7dffc0, transparent: true, opacity: 0.22, depthWrite: false }),
+    );
+    this.bubble.visible = false;
+    this.scene.add(this.bubble);
+    this.police = policeChaser();
+    this.police.visible = false;
+    this.scene.add(this.police);
+  }
+
+  dress(suit: Suit) {
+    dressHero(this.hero, suit);
   }
 
   burst(kind: BurstKind, x: number, y: number, z: number) {
@@ -240,6 +260,9 @@ export class GameRenderer {
     this.hemi.color = color(c.skyBottom).lerp(new THREE.Color(0xffffff), 0.5);
     this.hemi.groundColor = color(c.ground[1]);
     this.sun.color = color(c.sun);
+    // Night: the street lit by its lamps under a dark sky.
+    this.hemi.intensity = c.night ? 0.75 : 1.6;
+    this.sun.intensity = c.night ? 0.55 : 1.6;
     this.sea.visible = !!c.sea;
     if (c.sea) (this.sea.material as THREE.MeshBasicMaterial).color = color(c.sea);
 
@@ -255,11 +278,13 @@ export class GameRenderer {
     }
     c.landmarks.forEach((lm, j) => {
       const l = landmark(lm, c);
-      if (lm !== 'mosque') l.scale.setScalar(1.4); // further back than before, so a little bigger
+      if (lm !== 'mosque' && lm !== 'mountain') l.scale.setScalar(1.4); // further back than before, so a little bigger
+      // A gate is low and wide: as a city's signature it stands bigger and dead ahead, over the rooftops.
+      if (lm === 'bab' && j === 0) l.scale.setScalar(2.4);
       // The first landmark is the city's signature one, so it stands straight ahead.
       // Far enough back that even the tallest (the Hassan II minaret) fits under the HUD with the camera
       // looking down the street.
-      l.position.set([-4, -85, 85, -160][j % 4] + hash(c.seed + j) * (j ? 20 : 8), 0, -195 - (j % 2) * 15);
+      l.position.set([-4, -85, 85, -160][j % 4] + (lm === 'bab' && j === 0 ? 4 : hash(c.seed + j) * (j ? 20 : 8)), 0, -195 - (j % 2) * 15);
       this.skyline.add(l);
     });
     // One draw call for all the far blocks instead of forty.
@@ -305,6 +330,19 @@ export class GameRenderer {
     return o;
   }
 
+  // At night each street lamp gets a warm halo round its lantern.
+  private glowMat?: THREE.SpriteMaterial;
+  private litLamp(c: City) {
+    const l = lamp();
+    if (!c.night) return l;
+    this.glowMat ??= new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffc46b, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
+    const halo = new THREE.Sprite(this.glowMat);
+    halo.position.set(-1.2, 4.2, 0);
+    halo.scale.setScalar(2.4);
+    l.add(halo);
+    return l;
+  }
+
   private use(key: string, make: () => THREE.Object3D) {
     let p = this.pool.get(key);
     if (!p) {
@@ -341,8 +379,10 @@ export class GameRenderer {
     // A wider view at speed sells the rush of the skateboard and the chase.
     this.fovKick += ((s.skate > 0 ? 7 : 0) + (chase ? 3 : 0) - this.fovKick) * 0.06;
     const camX = s.x * 0.6;
-    const shakeX = s.shake > 0 ? Math.sin(t * 90) * s.shake * 0.25 : 0;
-    const shakeY = s.shake > 0 ? Math.cos(t * 70) * s.shake * 0.15 : 0;
+    // In the chase the ground rumbles, harder as the chaser closes in.
+    const rumble = chase ? 0.04 + Math.max(0, 1 - s.chaseGap / 12) * 0.12 : 0;
+    const shakeX = (s.shake > 0 ? Math.sin(t * 90) * s.shake * 0.25 : 0) + Math.sin(t * 53) * rumble;
+    const shakeY = (s.shake > 0 ? Math.cos(t * 70) * s.shake * 0.15 : 0) + Math.cos(t * 61) * rumble * 0.7;
     this.camera.position.set(camX + shakeX, this.camHeight + s.y * 0.3 + shakeY, this.camDist);
     this.camera.lookAt(camX * 0.6 + bend(12) * 0.5, s.y * 0.2, -10);
     this.fitCamera(this.camera.aspect);
@@ -375,6 +415,11 @@ export class GameRenderer {
       skating: s.skate > 0,
       tajine: s.tajine > 0,
     });
+    this.bubble.visible = s.shield > 0 && (s.shield > 2 || Math.floor(t * 8) % 2 === 0); // blinks as it runs out
+    if (this.bubble.visible) {
+      this.bubble.position.set(s.x, s.y + (s.slide > 0 ? 0.55 : 0.95), 0);
+      this.bubble.scale.setScalar(1 + Math.sin(t * 6) * 0.04);
+    }
     this.hero.root.visible = !(s.invuln > 0 && Math.floor(s.time * 12) % 2 === 0);
     this.shadow.position.x = s.x;
     this.shadow.scale.setScalar(Math.max(0.4, 1 - s.y * 0.25));
@@ -383,11 +428,12 @@ export class GameRenderer {
     for (const e of s.entities) {
       const d = e.z - s.z;
       if (d < -camBack || d > MAX_D) continue;
-      if (e.done && (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine')) continue;
+      const pickup = e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' || e.kind === 'magnet' || e.kind === 'shield';
+      if (e.done && pickup) continue;
       const o = this.use(`e${e.id}`, () => this.withShadow(entityObject(e, c), e));
-      o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
-      if (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
-      if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? -0.5 : 0.5;
+      o.position.set(e.x + bend(d), pickup ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
+      if (pickup && e.kind !== 'tajine') o.rotation.y = t * 3 + e.id;
+      if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? 1.1 : -1.1; // the moped heads across the street, a little toward you
       if (e.kind === 'taxi') {
         // Police lights flash in turn; moving cars rock a little on their springs.
         const on = Math.floor(t * 6 + e.id) % 2 === 0;
@@ -457,7 +503,7 @@ export class GameRenderer {
         };
         if (r2 > 0.8 && clear) walker(`k${i}${side}`, walkingKid, KID_CYCLE, 1.0 + hash(i * 5 + 1) * 0.6, -3);
         const p = this.use(`d${i}${side}`, () =>
-          kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : kind === 'spice' ? spiceMarket() : flag(),
+          kind === 'palm' ? palm() : kind === 'lamp' ? this.litLamp(c) : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : kind === 'spice' ? spiceMarket() : flag(),
         );
         p.position.set(side * (ROAD_HALF + (kind === 'stall' ? 1.9 : kind === 'spice' ? 2.1 : 1.3)) + bend(d), 0, -d);
         if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
@@ -514,12 +560,28 @@ export class GameRenderer {
 
     this.updateParticles(s, bend);
 
-    // The giant Charba rolling after you.
-    this.giant.visible = chase;
+    // The chaser: the giant Charba rolling after you, or in Marrakech a police van, kicking up dust.
+    const police = c.chaser === 'police';
+    this.giant.visible = chase && !police;
+    this.police.visible = chase && police;
     if (chase) {
-      const gap = 2.4 + s.chaseGap * 0.25;
-      this.giant.position.set(0, this.giant.userData.radius, gap);
-      this.giant.getObjectByName('spin')!.rotation.x = -t * 8;
+      // Close enough behind that it looms at the bottom of the screen, nearer as the gap closes.
+      const gap = police ? 4.4 + s.chaseGap * 0.2 : 1.3 + this.giant.userData.radius + s.chaseGap * 0.2;
+      if (police) {
+        this.police.position.set(Math.sin(t * 1.3) * 0.4, Math.sin(t * 17) * 0.02, gap);
+        this.police.rotation.y = Math.sin(t * 1.3 + 0.6) * 0.06;
+        const on = Math.floor(t * 7) % 2 === 0;
+        this.police.getObjectByName('sirenR')!.visible = on;
+        this.police.getObjectByName('sirenB')!.visible = !on;
+      } else {
+        this.giant.position.set(0, this.giant.userData.radius, gap);
+        this.giant.getObjectByName('spin')!.rotation.x = -t * 8;
+      }
+      if (t - this.dustAt > (this.lite ? 0.25 : 0.1)) {
+        this.dustAt = t;
+        const x = (Math.random() * 2 - 1) * (police ? 1.2 : 2.6);
+        this.burst('land', s.x + x, 0.1, s.z - gap + 0.8);
+      }
     }
 
     // Drop pooled objects not used this frame (behind us or no longer needed).

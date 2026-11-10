@@ -1,4 +1,4 @@
-"""Compose the game's two music loops (original, so free to ship) and write them as m4a.
+"""Compose the game's music loops (a menu theme and a run theme per city) (original, so free to ship) and write them as m4a.
 
 Usage: python3 scripts/compose-music.py assets/music
 Needs: numpy, and ffmpeg on the PATH
@@ -21,8 +21,11 @@ rng = np.random.default_rng(7)
 NOTE = {n: i for i, n in enumerate(['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'G#', 'A', 'Bb', 'B'])}
 
 
+SHIFT = 0  # semitones: each city's run theme is the same tune in its own key and tempo
+
+
 def hz(name):
-    return 440 * 2 ** ((NOTE[name[:-1]] + 12 * (int(name[-1]) + 1) - 69) / 12)
+    return 440 * 2 ** ((NOTE[name[:-1]] + 12 * (int(name[-1]) + 1) - 69 + SHIFT) / 12)
 
 
 # Melody: 16 bars of 8 eighth notes. '-' holds the previous note, '.' is a rest.
@@ -151,4 +154,17 @@ def write(name, sig):
 
 
 write('run', render(bpm=150, lead_duty=0.25, lead_vol=0.22, drums=True, castanets=True, soft=False))
+# One run theme per city: (file, semitones, bpm, lead pulse width, qraqeb, soft)
+for name, shift, bpm, duty, castanets, soft in [
+    ('run-rabat', -2, 132, 0.125, False, True),  # the night stage: lower, slower, sparse
+    ('run-safi', 2, 148, 0.25, True, False),
+    ('run-agadir', 3, 154, 0.5, False, False),
+    ('run-marrakech', 0, 158, 0.125, True, False),
+    ('run-fes', -3, 146, 0.5, True, False),
+    ('run-chefchaouen', 5, 140, 0.5, False, True),
+    ('run-tangier', 7, 162, 0.25, True, False),
+]:
+    SHIFT = shift
+    write(name, render(bpm=bpm, lead_duty=duty, lead_vol=0.22, drums=True, castanets=castanets, soft=soft))
+SHIFT = 0
 write('menu', render(bpm=104, lead_duty=0.5, lead_vol=0.2, drums=True, castanets=False, soft=True))

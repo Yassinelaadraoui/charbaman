@@ -19,29 +19,35 @@ Copy these into App Store Connect and the Google Play Console. Character limits 
 
 **Subtitle (App Store)** (30): Moroccan street-drink runner
 
-**Short description (Google Play)** (80): Run Casablanca to Tangier, grab Charba bottles and outrun the giant bottle!
+**Short description (Google Play)** (80): Run 8 Moroccan cities, grab Charba bottles and outrun the giant bottle!
 
-**Promotional text (App Store)** (170): Five Moroccan cities, one orange hero. Dodge petit taxis and donkey carts, slide under souk awnings and escape the giant rolling Charba bottle!
+**Promotional text (App Store)** (170): Eight Moroccan cities, one orange hero. Dodge taxis and donkey carts, slide under souk awnings and escape the giant rolling Charba bottle!
 
-**Keywords (App Store)** (100): runner,morocco,casablanca,marrakech,arcade,endless,maroc,darija,jump,dash,tangier,fes,safi,retro
+**Keywords (App Store)** (100): runner,morocco,casablanca,marrakech,rabat,agadir,chefchaouen,arcade,maroc,darija,fes,tangier
 
 **Description** (4000):
 
 Charbaman is the hero of Moroccan street drinks, and the giant Charba bottle is rolling after him!
 
-Sprint through five real Moroccan cities in a bright, retro 3D runner inspired by the classic arcade auto-runners of the 90s:
+Sprint through eight real Moroccan cities in a bright, retro 3D runner inspired by the classic arcade auto-runners of the 90s:
 
 • Casablanca: race the Corniche past the Hassan II Mosque
+• Rabat: a night run under the street lamps to the Hassan Tower
 • Safi: leap the pottery stacks below Ksar el Bahr
-• Marrakech: dodge carts through the souks of Jemaa el-Fna
+• Agadir: race the seafront under the Kasbah and the Atlas
+• Marrakech: dodge carts through Jemaa el-Fna, with a police van on your heels
 • Fes: race the medina at Bab Boujloud
+• Chefchaouen: the blue streets of the Rif
 • Tangier: the final dash to the Strait
 
-Steer freely across the whole street, jump crates of oranges, slide under market awnings and weave between petit taxis, grand taxis, scooters and donkey carts. Grab Charba bottles for points and extra lives, ride the skateboard for a burst of speed, and watch out for the tajine that lands on your head and flips your controls!
+Steer freely across the whole street, jump crates of oranges, slide under market awnings, dash low and weave between petit taxis, grand taxis, mopeds and donkey carts. Grab Charba bottles for points and extra lives, ride the skateboard for a burst of speed, pull bottles in with the magnet, take a knock with the shield, and watch out for the tajine that lands on your head and flips your controls!
 
 Every city ends with the chase: the giant Charba bottle rolls after you, and every hit lets it gain.
 
-• 5 city stages, unlocked one after another, plus an Endless mode that cycles through all of them
+• 8 city stages, unlocked one after another, plus an Endless mode that cycles through all of them
+• Three stars to earn in every city
+• Spend your bottles on new suits: Majorelle blue, zellige green, Sahara sand and more
+• Three new daily challenges every day, and 12 achievements
 • Bottle combos up to x5 and bonus points for brushing past traffic
 • Moroccan streets full of life: kids cheering, old men strolling, cats, chickens, pigeons and gulls
 • Original chiptune music with darbuka and qraqeb
@@ -60,27 +66,33 @@ Every city ends with the chase: the giant Charba bottle rolls after you, and eve
 
 **Description courte (Google Play)** (80) : De Casablanca à Tanger, ramasse les Charba et fuis la bouteille géante !
 
-**Texte promotionnel (App Store)** (170) : Cinq villes marocaines, un héros orange. Évite les petits taxis et les charrettes, glisse sous les auvents du souk et échappe à la bouteille géante !
+**Texte promotionnel (App Store)** (170) : Huit villes marocaines, un héros orange. Évite les petits taxis et les charrettes, glisse sous les auvents du souk et échappe à la bouteille géante !
 
-**Mots-clés (App Store)** (100) : course,maroc,casablanca,marrakech,arcade,sans fin,darija,sauter,tanger,fes,safi,rétro,runner
+**Mots-clés (App Store)** (100) : course,maroc,casablanca,marrakech,rabat,agadir,chefchaouen,arcade,darija,tanger,fes,runner
 
 **Description** (4000) :
 
 Charbaman est le héros des boissons de rue marocaines, et la bouteille géante de Charba lui roule après !
 
-Fonce à travers cinq vraies villes marocaines dans un jeu de course 3D rétro et coloré, inspiré des grands jeux d’arcade des années 90 :
+Fonce à travers huit vraies villes marocaines dans un jeu de course 3D rétro et coloré, inspiré des grands jeux d’arcade des années 90 :
 
 • Casablanca : sprinte sur la Corniche devant la mosquée Hassan II
+• Rabat : une course de nuit sous les réverbères jusqu’à la tour Hassan
 • Safi : saute les poteries au pied du Ksar el Bahr
-• Marrakech : évite les charrettes dans les souks de Jemaa el-Fna
+• Agadir : longe le front de mer sous la Kasbah et l’Atlas
+• Marrakech : évite les charrettes à Jemaa el-Fna, une fourgonnette de police aux trousses
 • Fès : fonce dans la médina à Bab Boujloud
+• Chefchaouen : les ruelles bleues du Rif
 • Tanger : le sprint final jusqu’au Détroit
 
-Dirige-toi librement dans toute la rue, saute les caisses d’oranges, glisse sous les auvents et faufile-toi entre petits taxis, grands taxis, scooters et charrettes. Ramasse les bouteilles de Charba pour des points et des vies, file sur le skateboard, et gare au tajine qui tombe sur ta tête et inverse les commandes !
+Dirige-toi librement dans toute la rue, saute les caisses d’oranges, glisse sous les auvents et faufile-toi entre petits taxis, grands taxis, mobylettes et charrettes. Ramasse les bouteilles de Charba pour des points et des vies, file sur le skateboard, attire les bouteilles avec l’aimant, encaisse un coup avec le bouclier, et gare au tajine qui tombe sur ta tête et inverse les commandes !
 
 Chaque ville finit par la poursuite : la Charba géante te roule après, et chaque coup la rapproche.
 
-• 5 villes à débloquer, plus un mode sans fin qui les enchaîne toutes
+• 8 villes à débloquer, plus un mode sans fin qui les enchaîne toutes
+• Trois étoiles à gagner dans chaque ville
+• Dépense tes bouteilles en nouvelles tenues : bleu Majorelle, vert zellige, sable du Sahara et plus
+• Trois nouveaux défis chaque jour et 12 succès
 • Combos de bouteilles jusqu’à x5 et bonus quand tu frôles la circulation
 • Des rues pleines de vie : enfants qui t’encouragent, vieux promeneurs, chats, poules, pigeons et goélands
 • Musique chiptune originale avec darbouka et qraqeb
@@ -99,27 +111,33 @@ Chaque ville finit par la poursuite : la Charba géante te roule après, et chaq
 
 **الوصف القصير (Google Play)** (80): من الدار البيضاء إلى طنجة، اجمع زجاجات الشربة واهرب من الزجاجة العملاقة!
 
-**النص الترويجي (App Store)** (170): خمس مدن مغربية وبطل برتقالي واحد. تفادَ سيارات الأجرة وعربات الحمير، انزلق تحت مظلات السوق واهرب من زجاجة الشربة العملاقة!
+**النص الترويجي (App Store)** (170): ثماني مدن مغربية وبطل برتقالي واحد. تفادَ سيارات الأجرة وعربات الحمير، انزلق تحت مظلات السوق واهرب من زجاجة الشربة العملاقة!
 
-**الكلمات المفتاحية (App Store)** (100): جري,المغرب,الدار البيضاء,مراكش,طنجة,فاس,آسفي,لعبة,قفز,شربة,ركض,أركيد
+**الكلمات المفتاحية (App Store)** (100): جري,المغرب,الدار البيضاء,مراكش,الرباط,أكادير,شفشاون,طنجة,فاس,لعبة,شربة,أركيد
 
 **الوصف** (4000):
 
 شربة مان هو بطل مشروبات الشارع المغربية، وزجاجة الشربة العملاقة تتدحرج وراءه!
 
-اركض عبر خمس مدن مغربية حقيقية في لعبة جري ثلاثية الأبعاد بألوان زاهية وطابع كلاسيكي مستوحى من ألعاب الأركيد في التسعينات:
+اركض عبر ثماني مدن مغربية حقيقية في لعبة جري ثلاثية الأبعاد بألوان زاهية وطابع كلاسيكي مستوحى من ألعاب الأركيد في التسعينات:
 
 • الدار البيضاء: اركض على الكورنيش قرب مسجد الحسن الثاني
+• الرباط: جري ليلي تحت أضواء الشارع نحو صومعة حسان
 • آسفي: اقفز فوق الفخار عند قصر البحر
-• مراكش: تفادَ العربات في أسواق جامع الفنا
+• أكادير: اركض على الواجهة البحرية تحت القصبة وجبال الأطلس
+• مراكش: تفادَ العربات في جامع الفنا وسيارة الشرطة في أعقابك
 • فاس: سابق في المدينة القديمة عند باب بوجلود
+• شفشاون: أزقة الريف الزرقاء
 • طنجة: الركض الأخير نحو المضيق
 
-تحرك بحرية في كل الشارع، اقفز فوق صناديق البرتقال، انزلق تحت مظلات السوق وتفادَ سيارات الأجرة الصغيرة والكبيرة والدراجات وعربات الحمير. اجمع زجاجات الشربة لتربح النقاط والأرواح، اركب لوح التزلج لتسرع، واحذر الطاجين الذي يسقط على رأسك ويعكس التحكم!
+تحرك بحرية في كل الشارع، اقفز فوق صناديق البرتقال، انزلق تحت مظلات السوق وتفادَ سيارات الأجرة الصغيرة والكبيرة والدراجات وعربات الحمير. اجمع زجاجات الشربة لتربح النقاط والأرواح، اركب لوح التزلج لتسرع، اجذب الزجاجات بالمغناطيس، تلقَّ ضربة بالدرع، واحذر الطاجين الذي يسقط على رأسك ويعكس التحكم!
 
 كل مدينة تنتهي بمطاردة: زجاجة الشربة العملاقة تتدحرج خلفك، وكل ضربة تقربها منك.
 
-• 5 مدن تُفتح واحدة بعد الأخرى، وطور جري بلا نهاية يمر بها كلها
+• 8 مدن تُفتح واحدة بعد الأخرى، وطور جري بلا نهاية يمر بها كلها
+• ثلاث نجوم لتربحها في كل مدينة
+• اصرف زجاجاتك على بدلات جديدة: أزرق ماجوريل، أخضر الزليج، رمال الصحراء والمزيد
+• ثلاثة تحديات جديدة كل يوم و12 إنجازاً
 • كومبو القنينات حتى x5 ونقاط إضافية عندما تمر بجانب السيارات
 • شوارع مغربية نابضة بالحياة: أطفال يشجعون، شيوخ يتمشون، قطط ودجاج وحمام ونوارس
 • موسيقى أصلية بطابع الدربوكة والقراقب

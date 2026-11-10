@@ -8,12 +8,14 @@ import { CharbaSprite } from '../components/CharbaSprite';
 import { colors } from '../theme';
 import { firebaseEnabled, submitScore } from '../services/firebase';
 import { cleanName } from '../services/names';
-import { cityName, fmt, t } from '../i18n';
+import { Key, cityName, fmt, t } from '../i18n';
+import type { RunReward } from '../services/storage';
 
 type Props = {
   result: RunResult;
   name: string;
   isBest: boolean;
+  reward?: RunReward;
   onSaveName: (name: string) => void;
   onRetry: () => void;
   onNext?: () => void;
@@ -23,7 +25,7 @@ type Props = {
 
 export const modeKey = (r: { mode: string; cityIndex: number }) => (r.mode === 'endless' ? 'endless' : CITIES[r.cityIndex].id);
 
-export function ResultScreen({ result, name, isBest, onSaveName, onRetry, onNext, onMenu, onLeaderboard }: Props) {
+export function ResultScreen({ result, name, isBest, reward, onSaveName, onRetry, onNext, onMenu, onLeaderboard }: Props) {
   const [draft, setDraft] = useState(name);
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'saved' | 'failed' | 'rejected'>('idle');
   const count = useRef(new Animated.Value(0)).current;
@@ -64,13 +66,36 @@ export function ResultScreen({ result, name, isBest, onSaveName, onRetry, onNext
           <Text style={styles.where}>{where}</Text>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.score}>{fmt(shown)}</Text>
+          {result.cleared && result.mode === 'stage' && (
+            <Text style={styles.stars} accessibilityLabel={`${result.stars} / 3`}>
+              {[0, 1, 2].map((k) => (k < result.stars ? '★' : '☆')).join(' ')}
+            </Text>
+          )}
           {isBest && <Text style={styles.best}>{t('newBest')}</Text>}
         </Animated.View>
 
         <View style={styles.stats}>
           <Stat label={t('statBottles')} value={result.cans} />
           <Stat label={t('statMetres')} value={result.distance} />
+          <Stat label={t('statClose')} value={result.closeCalls} />
+          <Stat label={t('statCombo')} value={result.maxCombo} prefix="×" />
         </View>
+
+        {reward && (
+          <View style={styles.rewards}>
+            {reward.earned > 0 && <Text style={styles.earned}>{t('result.earned', { n: fmt(reward.earned) })}</Text>}
+            {reward.daily.map((c) => (
+              <Text key={c.id} style={styles.note}>
+                {t('result.daily', { n: c.reward })}
+              </Text>
+            ))}
+            {reward.achievements.map((id) => (
+              <Text key={id} style={styles.note}>
+                {t('result.ach', { name: t(`ach.${id}.name` as Key) })}
+              </Text>
+            ))}
+          </View>
+        )}
 
         <View style={styles.submit}>
           <Text style={styles.label}>{t('yourName')}</Text>
@@ -110,9 +135,12 @@ export function ResultScreen({ result, name, isBest, onSaveName, onRetry, onNext
   );
 }
 
-const Stat = ({ label, value }: { label: string; value: number }) => (
+const Stat = ({ label, value, prefix = '' }: { label: string; value: number; prefix?: string }) => (
   <View style={styles.stat}>
-    <Text style={styles.statValue}>{fmt(value)}</Text>
+    <Text style={styles.statValue}>
+      {prefix}
+      {fmt(value)}
+    </Text>
     <Text style={styles.statLabel}>{label}</Text>
   </View>
 );
@@ -121,11 +149,15 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'space-evenly' },
   where: { color: colors.cream, fontWeight: '800', fontSize: 16, letterSpacing: 1 },
   title: { color: colors.white, fontWeight: '900', fontSize: 38 },
-  score: { color: colors.gold, fontWeight: '900', fontSize: 56 },
+  score: { color: colors.gold, fontWeight: '900', fontSize: 50 },
   best: { color: colors.white, fontWeight: '900', fontSize: 16 },
-  stats: { flexDirection: 'row', gap: 12 },
-  stat: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 16, paddingVertical: 10, paddingHorizontal: 18, alignItems: 'center' },
-  statValue: { color: colors.white, fontWeight: '900', fontSize: 22 },
+  stars: { color: colors.gold, fontWeight: '900', fontSize: 34, letterSpacing: 2 },
+  stats: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
+  stat: { backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 12, alignItems: 'center', minWidth: 72 },
+  statValue: { color: colors.white, fontWeight: '900', fontSize: 20 },
+  rewards: { alignItems: 'center', gap: 4 },
+  earned: { color: colors.gold, fontWeight: '900', fontSize: 16 },
+  note: { color: colors.white, fontWeight: '800', fontSize: 14 },
   statLabel: { color: colors.cream, fontWeight: '700', fontSize: 12 },
   submit: { alignItems: 'center', gap: 8, width: '100%' },
   label: { color: colors.cream, fontWeight: '700' },

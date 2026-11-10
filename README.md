@@ -19,11 +19,15 @@ that plays every stage and an endless run to make sure each can be cleared and n
 
 ## What is in the game
 
-- 5 city stages with their own skyline, colours, taxis and difficulty, unlocked one after another
+- 8 city stages (Casablanca, Rabat at night, Safi, Agadir, Marrakech, Fes, Chefchaouen, Tangier) with their own
+  skyline, colours, taxis, music and difficulty, unlocked one after another; three stars to earn in each
 - Endless mode that cycles through the cities and speeds up
 - 3 hits of health, 3 lives, checkpoints, an extra life every 25 bottles
-- Skateboard power-up (speed) and the tajine-on-the-head gag that flips your controls
-- Giant Charba chase at the end of each city (get hit and it rolls closer)
+- Power-ups: skateboard (speed), bottle magnet, shield (takes one hit), and the tajine-on-the-head gag that flips
+  your controls; a low dash (slide, then swipe up)
+- Bottles go in a wallet to buy suits (`src/game/progression.ts`); three daily challenges a day; 12 local
+  achievements, ready for Game Center / Play Games (`src/services/achievements.ts`, RELEASE.md §9)
+- Giant Charba chase at the end of each city (get hit and it rolls closer); in Marrakech a police van instead
 - Obstacles: crates of oranges (jump), market awnings (slide), petit taxis, grand taxis, police vans, scooters,
   donkey carts
 - Street life: cheering kids, a strolling old man, cats, chickens, pigeons, gulls over the port cities, bus stops,
@@ -149,7 +153,8 @@ Sketchfab Standard license (allowed inside a game, not for redistribution as a m
 - `src/game/three/props.ts` obstacles, bottles, houses, street life and landmarks
 - `src/game/sprites.tsx` 2D bottle icon used in menus and the HUD
 - `src/game/cities.ts` stage definitions
-- `src/screens/*` title, city select, game, results, leaderboard, how to play, settings, about
+- `src/game/progression.ts` stars, suits, daily challenges and achievements (pure functions)
+- `src/screens/*` title, city select, game, results, suit shop, achievements, leaderboard, how to play, settings, about
 - `src/i18n.ts` English, French and Arabic text
 - `src/services/` local save and settings, Firebase scores, name filter, sound effects and music
 - `src/config.ts` release settings (contact address)

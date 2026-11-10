@@ -332,14 +332,42 @@ function build_taxi(c: City) {
 }
 
 function build_scooter() {
+  // A little moped, the kind every Moroccan medina is full of, with a helmeted rider. Faces +z.
   const g = new THREE.Group();
-  g.add(box(0.5, 0.35, 1.3, 0x2a9d8f, 0, 0.45));
-  g.add(box(0.45, 0.6, 0.35, 0xe9c46a, 0, 0.95, 0.15));
-  g.add(sphere(0.2, 0x264653, 0, 1.42, 0.15));
-  const w1 = cyl(0.22, 0.22, 0.12, 10, 0x111111, 0, 0.22, -0.5);
-  const w2 = cyl(0.22, 0.22, 0.12, 10, 0x111111, 0, 0.22, 0.5);
-  w1.rotation.z = w2.rotation.z = Math.PI / 2;
-  g.add(w1, w2);
+  const BODY = 0x2a9d8f;
+  const wheel = (z: number) => {
+    const tyre = cyl(0.24, 0.24, 0.1, 12, 0x161616, 0, 0.24, z);
+    tyre.rotation.z = Math.PI / 2;
+    const hub = cyl(0.12, 0.12, 0.11, 8, 0xb0b6bb, 0, 0.24, z);
+    hub.rotation.z = Math.PI / 2;
+    g.add(tyre, hub);
+  };
+  wheel(0.62);
+  wheel(-0.6);
+  g.add(box(0.36, 0.12, 0.9, 0x333333, 0, 0.36, 0)); // floorboard
+  g.add(box(0.42, 0.42, 0.62, BODY, 0, 0.62, -0.38)); // rear body over the engine
+  g.add(box(0.36, 0.1, 0.58, 0x1b1b1b, 0, 0.88, -0.34)); // seat
+  g.add(box(0.4, 0.22, 0.3, BODY, 0, 0.42, 0.62)); // front mudguard
+  const stem = box(0.12, 0.85, 0.14, BODY, 0, 0.88, 0.5);
+  stem.rotation.x = -0.25;
+  g.add(stem);
+  g.add(box(0.62, 0.06, 0.06, 0x222222, 0, 1.28, 0.42)); // handlebars
+  g.add(box(0.22, 0.16, 0.08, 0xfff3b0, 0, 1.12, 0.6)); // headlight
+  g.add(box(0.3, 0.26, 0.3, 0x8d6e63, 0, 1.0, -0.82)); // a crate of bread on the rack
+  // Rider: jacket, jeans, arms to the bars, and a helmet.
+  g.add(box(0.42, 0.55, 0.3, 0x3a5a40, 0, 1.22, -0.25)); // torso
+  for (const sx of [-1, 1]) {
+    const thigh = box(0.15, 0.15, 0.42, 0x2f4b7c, sx * 0.12, 0.95, -0.08);
+    g.add(thigh);
+    g.add(box(0.14, 0.42, 0.14, 0x2f4b7c, sx * 0.13, 0.66, 0.12)); // shin
+    g.add(box(0.15, 0.08, 0.24, 0x2b2b2b, sx * 0.13, 0.44, 0.18)); // foot on the board
+    const arm = box(0.11, 0.11, 0.55, 0x3a5a40, sx * 0.24, 1.3, 0.1);
+    arm.rotation.x = 0.25;
+    g.add(arm);
+  }
+  g.add(box(0.2, 0.22, 0.2, 0xc68a5a, 0, 1.6, -0.22)); // face
+  g.add(sphere(0.19, 0xe63946, 0, 1.72, -0.25, 10)); // helmet
+  g.add(box(0.3, 0.07, 0.1, 0x1a1a1a, 0, 1.64, -0.08)); // visor
   return g;
 }
 
@@ -493,6 +521,39 @@ function build_skatePickup() {
   return g;
 }
 
+// Power-up: a red horseshoe magnet with silver tips, standing up so it reads from behind.
+function build_magnetPickup() {
+  const g = new THREE.Group();
+  const R = 0.26;
+  for (let k = 0; k <= 6; k++) {
+    const a = (k / 6) * Math.PI; // the bend, bottom half of a ring
+    const seg = box(0.13, 0.13, 0.16, 0xd62828, Math.cos(a) * R, 0.55 - Math.sin(a) * R, 0);
+    seg.rotation.z = a;
+    g.add(seg);
+  }
+  for (const sx of [-1, 1]) {
+    g.add(box(0.14, 0.22, 0.16, 0xd62828, sx * R, 0.66, 0));
+    g.add(box(0.15, 0.12, 0.17, 0xdfe6ec, sx * R, 0.82, 0));
+  }
+  return g;
+}
+
+// Power-up: a round shield badge, green zellige star on a white rim.
+function build_shieldPickup() {
+  const g = new THREE.Group();
+  const rim = cyl(0.36, 0.36, 0.08, 16, 0xf1faee, 0, 0.6, 0);
+  rim.rotation.x = Math.PI / 2;
+  const face = cyl(0.3, 0.3, 0.1, 16, 0x1d7a46, 0, 0.6, 0);
+  face.rotation.x = Math.PI / 2;
+  g.add(rim, face);
+  for (const r of [0, Math.PI / 4]) {
+    const star = box(0.28, 0.28, 0.12, GOLD, 0, 0.6, 0);
+    star.rotation.z = r;
+    g.add(star);
+  }
+  return g;
+}
+
 // The collectible Charba: an orange juice bottle.
 function juice() {
   const g = new THREE.Group();
@@ -548,6 +609,10 @@ export function entityObject(e: Entity, c: City): THREE.Object3D {
       return tajinePickup();
     case 'skate':
       return skatePickup();
+    case 'magnet':
+      return flat('magnet', build_magnetPickup);
+    case 'shield':
+      return flat('shield', build_shieldPickup);
   }
 }
 
@@ -604,7 +669,12 @@ function build_house(c: City, variant: number, side: number) {
     for (const z of [-1.9, 0, 1.9]) {
       if (z === 0 && !balcony && v(20 + fl) % 2) continue;
       f(1.0, 1.45, 0.04, frame, y0 + 1.45, z);
-      f(0.78, 1.22, 0.07, 0x2f3b45, y0 + 1.45, z); // glass
+      if (c.night && v(50 + fl * 3 + Math.round(z)) % 3 !== 0) {
+        // A lit window at night.
+        const lit = new THREE.Mesh(geo('box0.07,1.22,0.78', () => new THREE.BoxGeometry(0.07, 1.22, 0.78)), mat(0xffcf7a, { emissive: true }));
+        lit.position.set(fx - side * 0.035, y0 + 1.45, z);
+        g.add(lit);
+      } else f(0.78, 1.22, 0.07, 0x2f3b45, y0 + 1.45, z); // glass
       if (v(30 + fl) % 2) for (const sz of [-1, 1]) f(0.36, 1.25, 0.06, c.accent, y0 + 1.45, z + sz * 0.62, 0.02); // shutters
     }
     if (balcony) {
@@ -649,6 +719,9 @@ const CITY_HOUSES: Record<string, HouseModel[]> = {
   marrakech: [OLD, RIAD, MIXED],
   fes: [OLD, MIXED, RIAD],
   tangier: [POPULAR, RIAD],
+  rabat: [POPULAR, RIAD, MIXED],
+  agadir: [POPULAR, POPULAR, MIXED],
+  // Chefchaouen is all blue-washed walls: only the town houses built in code, in the city's blues.
 };
 
 export const hasModelHouses = (c: City) => !!CITY_HOUSES[c.id];
@@ -1053,6 +1126,38 @@ export function landmark(kind: Landmark, c: City) {
       g.add(m);
       break;
     }
+    case 'mountain': {
+      // A mountain range: a jagged ridge line with rocky facets falling toward the city, not lone cones.
+      const geom = geo(`range${c.seed}`, () => {
+        const N = 22;
+        const rows = 4;
+        const pts: number[][][] = [];
+        for (let r = 0; r <= rows; r++) {
+          const row: number[][] = [];
+          const k = r / rows; // 0 at the foot, 1 on the ridge
+          for (let i = 0; i <= N; i++) {
+            const u = i / N;
+            const peaks = 0.55 + 0.45 * Math.sin(u * 9.1 + c.seed) * Math.sin(u * 3.7 + 1.3) + (hashN(c.seed * 31 + i) - 0.5) * 0.35;
+            const ridge = 22 + 58 * Math.max(0.15, peaks) * Math.sin(Math.PI * Math.min(1, u * 1.15 + 0.02)) ** 0.6;
+            const jit = (hashN(c.seed * 97 + r * 41 + i) - 0.5) * (r && r < rows ? 9 : 0);
+            row.push([-210 + u * 420 + jit, ridge * Math.pow(k, 1.25) + jit * 0.4 * k, 45 - k * 50]);
+          }
+          pts.push(row);
+        }
+        const pos: number[] = [];
+        for (let r = 0; r < rows; r++)
+          for (let i = 0; i < N; i++) {
+            const [a, b, c2, d] = [pts[r][i], pts[r][i + 1], pts[r + 1][i + 1], pts[r + 1][i]];
+            pos.push(...a, ...b, ...c2, ...a, ...c2, ...d);
+          }
+        const g2 = new THREE.BufferGeometry();
+        g2.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g2.computeVertexNormals();
+        return g2;
+      });
+      g.add(new THREE.Mesh(geom, mat(shadeHex(c.far, -4))));
+      break;
+    }
     case 'tower':
       g.add(box(12, 40, 12, col, 0, 20));
       g.add(box(12.4, 1.2, 12.4, c.accent, 0, 40));
@@ -1068,13 +1173,36 @@ export function shadeHex(hex: string, pct: number) {
 }
 
 // The giant rolling Charba bottle from the end-of-city chase, lying on its side.
+// Marrakech's chaser: a police van, big and close behind, lights going. Faces -z (it chases you).
+export function policeChaser() {
+  const g = new THREE.Group();
+  const m = model('police-chaser', POLICE_CAR, { length: 4.3 });
+  m.rotation.y = Math.PI / 2; // modelled nose at -x; nose toward -z, down the street after you
+  g.add(m);
+  const roof = POLICE_CAR.size[1] * m.scale.y;
+  g.add(box(1.2, 0.12, 0.32, 0x222222, 0, roof + 0.02, 0));
+  for (const [name, x, color] of [['sirenR', -0.3, 0xff2b2b], ['sirenB', 0.3, 0x2b6bff]] as const) {
+    const light = new THREE.Mesh(geo('siren-big', () => new THREE.BoxGeometry(0.5, 0.16, 0.34)), mat(color, { emissive: true }));
+    light.position.set(x, roof + 0.12, 0);
+    light.name = name;
+    g.add(light);
+  }
+  // Headlights glaring at you.
+  for (const x of [-0.7, 0.7]) {
+    const h = new THREE.Mesh(geo('headlight', () => new THREE.BoxGeometry(0.35, 0.2, 0.05)), mat(0xfff6c8, { emissive: true }));
+    h.position.set(x, 0.6, -2.17);
+    g.add(h);
+  }
+  return g;
+}
+
 export function giantBottle() {
   const g = new THREE.Group();
   const roll = new THREE.Group();
   roll.name = 'roll';
-  const m = model('juice-giant', JUICE_BOTTLE, { height: 5.2 });
+  const m = model('juice-giant', JUICE_BOTTLE, { height: 6.2 });
   const r = (JUICE_BOTTLE.size[0] * m.scale.x) / 2;
-  m.position.y = -5.2 / 2; // centre the bottle on its axis
+  m.position.y = -6.2 / 2; // centre the bottle on its axis
   roll.add(m);
   roll.rotation.z = Math.PI / 2; // bottle axis across the street
   const spin = new THREE.Group();
