@@ -90,10 +90,13 @@ export function bakedGeometry(m: BakedModel, smooth = false) {
   return g;
 }
 
+// Positions of the base pose (frame -1) or one of the baked frames.
+export const bakedPositions = (m: BakedModel, frame = -1) => positions(m, frame < 0 ? m.pos : m.frames![frame]).pos;
+
 // A static baked model given poses in code: `pose(base, k)` returns pose k's positions (k = 0 replaces the
 // base). Used to make a walk cycle for a model that was baked standing still.
-export function posedGeometry(m: BakedModel, count: number, pose: (base: Float32Array, k: number) => Float32Array, smooth = false) {
-  const { q, pos } = positions(m, m.pos);
+export function posedGeometry(m: BakedModel, count: number, pose: (base: Float32Array, k: number) => Float32Array, smooth = false, frame = -1) {
+  const { q, pos } = positions(m, frame < 0 ? m.pos : m.frames![frame]);
   const qu = uint16(m.uv);
   const uv = new Float32Array(qu.length);
   for (let i = 0; i < qu.length; i++) uv[i] = qu[i] / 65535;
@@ -102,8 +105,10 @@ export function posedGeometry(m: BakedModel, count: number, pose: (base: Float32
   g.setAttribute('position', new THREE.BufferAttribute(poses[0], 3));
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   g.setAttribute('normal', new THREE.BufferAttribute(normals(poses[0], q, smooth), 3));
-  g.morphAttributes.position = poses.slice(1).map((p) => new THREE.BufferAttribute(p, 3));
-  g.morphAttributes.normal = poses.slice(1).map((p) => new THREE.BufferAttribute(normals(p, q, smooth), 3));
+  if (count > 1) {
+    g.morphAttributes.position = poses.slice(1).map((p) => new THREE.BufferAttribute(p, 3));
+    g.morphAttributes.normal = poses.slice(1).map((p) => new THREE.BufferAttribute(normals(p, q, smooth), 3));
+  }
   g.computeBoundingSphere();
   g.boundingSphere!.radius *= 1.5;
   return g;

@@ -3,7 +3,7 @@ import type { City, Landmark } from '../cities';
 import type { Entity } from '../engine';
 import { TAXI_PARTS } from './taxiMesh';
 import type { BakedModel } from './models/types';
-import { bakedGeometry, bakedTexture, posedGeometry } from './models/decode';
+import { bakedGeometry, bakedPositions, bakedTexture, posedGeometry } from './models/decode';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { APPLE_BOX } from './models/appleBox';
 import { BANKNOTE } from './models/banknote';
@@ -346,25 +346,116 @@ function build_scooter() {
 // The donkey's walk: 8 poses of a 1.07 s cycle.
 export const DONKEY_CYCLE = { poses: 8, seconds: 1.0667 };
 
-function donkeyCart(e: Entity) {
+// A donkey pulling a fruit cart down the street toward you, an old man on the bench holding the reins.
+// Faces +z (toward the player); about 3.6 m from the donkey's nose to the tailboard.
+function donkeyCart() {
   const g = new THREE.Group();
-  const w = e.w * 2;
-  // donkey in front (further away from the player); the model faces +x
   const donkey = model('donkey', DONKEY, { length: 1.9 });
-  donkey.rotation.y = Math.PI / 2;
-  donkey.position.z = -1.5;
+  donkey.rotation.y = -Math.PI / 2; // the model faces +x
+  donkey.position.z = 0.95;
   donkey.name = 'donkey';
   g.add(donkey);
-  // cart full of fruit
-  g.add(box(w, 0.5, 1.4, 0x8b5a2b, 0, 0.75, 0.3));
-  for (let i = 0; i < 6; i++) g.add(sphere(0.18, i % 2 ? ORANGE : 0x7cb518, -w / 2 + 0.25 + (i % 3) * (w / 3), 1.1, 0.0 + Math.floor(i / 3) * 0.6, 6));
-  for (const sx of [-1, 1]) {
-    const wh = cyl(0.42, 0.42, 0.1, 10, 0x3e2723, sx * (w / 2 + 0.05), 0.42, 0.3);
-    wh.rotation.z = Math.PI / 2;
-    g.add(wh);
-  }
+  g.add(flat('fruitcart', buildFruitCart));
+  const driver = model('oldman', OLD_MAN, { height: 1.7 });
+  driver.geometry = geo('oldman-seated', seatedOldMan);
+  driver.morphTargetInfluences = undefined;
+  driver.position.set(0, 0.88 - 0.88 * driver.scale.y, -0.55); // hips on the bench
+  g.add(driver);
   return g;
 }
+
+function buildFruitCart() {
+  const g = new THREE.Group();
+  const WOOD = 0x8b5a2b;
+  const WOOD_DARK = 0x5c3a1e;
+  const CZ = -1.05; // cart centre
+  // Bed, slatted sides and tailboard.
+  g.add(box(1.4, 0.1, 1.5, WOOD_DARK, 0, 0.72, CZ));
+  for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) g.add(box(0.05, 0.1, 1.5, k % 2 ? WOOD : 0xa0703c, sx * 0.68, 0.83 + k * 0.12, CZ));
+  for (let k = 0; k < 3; k++) g.add(box(1.4, 0.1, 0.05, k % 2 ? WOOD : 0xa0703c, 0, 0.83 + k * 0.12, CZ - 0.74));
+  g.add(box(1.4, 0.08, 0.32, 0xa0703c, 0, 0.84, CZ + 0.62)); // driver's bench
+  // Shafts out to the donkey's harness, and the axle.
+  for (const sx of [-1, 1]) {
+    const shaft = box(0.07, 0.07, 1.9, WOOD_DARK, sx * 0.34, 0.86, 0.15);
+    shaft.rotation.x = -0.08;
+    g.add(shaft);
+  }
+  g.add(box(0.75, 0.12, 0.12, 0x3a2a1a, 0, 0.98, 0.95)); // yoke across the donkey's back
+  g.add(cyl(0.04, 0.04, 1.75, 6, 0x3a3a3a, 0, 0.45, CZ).rotateZ(Math.PI / 2));
+  // Big spoked wheels.
+  for (const sx of [-1, 1]) {
+    const x = sx * 0.85;
+    const rim = cyl(0.45, 0.45, 0.07, 14, 0x3e2723, x, 0.45, CZ);
+    rim.rotation.z = Math.PI / 2;
+    const inner = cyl(0.37, 0.37, 0.075, 14, 0x6b4a2b, x, 0.45, CZ);
+    inner.rotation.z = Math.PI / 2;
+    g.add(rim, inner);
+    for (let k = 0; k < 4; k++) {
+      const spoke = box(0.085, 0.8, 0.05, 0x3e2723, x, 0.45, CZ);
+      spoke.rotation.x = (k * Math.PI) / 4;
+      g.add(spoke);
+    }
+    g.add(cyl(0.09, 0.09, 0.1, 8, 0x2a2a2a, x, 0.45, CZ).rotateZ(Math.PI / 2));
+  }
+  // The load: a heap of oranges, green melons, and a crate of apples at the back.
+  const fruit = (r: number, color: number, x: number, y: number, z: number, sy = 1) => {
+    const f = sphere(r, color, x, y, z, 7);
+    f.scale.y = sy;
+    g.add(f);
+  };
+  for (let row = 0; row < 3; row++)
+    for (let k = 0; k < 5 - row; k++) fruit(0.11, k % 3 === 1 ? 0xff9500 : 0xff7a00, -0.48 + row * 0.12 + k * 0.24, 0.88 + row * 0.17, CZ + 0.15 - row * 0.05);
+  for (const [x, z] of [[-0.35, CZ - 0.35], [0.05, CZ - 0.42], [0.42, CZ - 0.3]]) fruit(0.21, 0x2d6a2f, x, 0.98, z, 0.85);
+  fruit(0.18, 0x3d8b3d, -0.12, 1.25, CZ - 0.35, 0.85);
+  g.add(box(0.5, 0.3, 0.38, 0xc49a6c, 0.3, 0.92, CZ + 0.4));
+  for (let k = 0; k < 4; k++) fruit(0.08, 0xc1272d, 0.18 + (k % 2) * 0.22, 1.11, CZ + 0.32 + Math.floor(k / 2) * 0.17);
+  return g;
+}
+
+// The strolling old man, sat down: from the walk frame with his feet closest together, his legs fold at the
+// hips (thighs forward along +z) and at the knees (shins down). Model space: hips y 0.88, knees y 0.46.
+function seatedOldMan() {
+  let best = -1;
+  let spread = Infinity;
+  for (let f = -1; f < (OLD_MAN.frames?.length ?? 0); f++) {
+    const p = bakedPositions(OLD_MAN, f);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < p.length; i += 3) {
+      if (p[i + 1] >= 0.2) continue;
+      lo = Math.min(lo, p[i + 2]);
+      hi = Math.max(hi, p[i + 2]);
+    }
+    if (hi - lo < spread) {
+      spread = hi - lo;
+      best = f;
+    }
+  }
+  const HIP = 0.88;
+  const KNEE = 0.46;
+  const rot = (y: number, z: number, py: number, pz: number, th: number): [number, number] => {
+    const ry = y - py;
+    const rz = z - pz;
+    return [py + ry * Math.cos(th) - rz * Math.sin(th), pz + ry * Math.sin(th) + rz * Math.cos(th)];
+  };
+  const sit = (base: Float32Array) => {
+    const out = new Float32Array(base);
+    for (let i = 0; i < out.length; i += 3) {
+      let y = out[i + 1];
+      let z = out[i + 2];
+      if (y >= HIP) continue;
+      const knee = smoothstep(KNEE + 0.05, KNEE - 0.05, y); // 1 for the shin, 0 for the thigh
+      [y, z] = rot(y, z, KNEE, 0, (Math.PI / 2) * knee);
+      const hip = smoothstep(HIP + 0.02, HIP - 0.08, out[i + 1]);
+      [y, z] = rot(y, z, HIP, 0, (-Math.PI / 2) * hip);
+      out[i + 1] = y;
+      out[i + 2] = z;
+    }
+    return out;
+  };
+  return posedGeometry(OLD_MAN, 1, sit, true, best);
+}
+
 
 function build_arch(e: Entity, finish: boolean) {
   const g = new THREE.Group();
@@ -448,7 +539,7 @@ export function entityObject(e: Entity, c: City): THREE.Object3D {
     case 'scooter':
       return scooter();
     case 'donkey':
-      return donkeyCart(e);
+      return donkeyCart();
     case 'checkpoint':
       return arch(e, false);
     case 'finish':

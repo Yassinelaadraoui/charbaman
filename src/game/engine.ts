@@ -285,9 +285,11 @@ function pattern(s: GameState, z: number, inChase: boolean): number {
     return 12;
   }
   if (r < 0.88) {
-    const dir = rand(s) < 0.5 ? -1 : 1;
-    add(s, { kind: 'donkey', z, x: -dir * 1.5, vx: dir * 1.1, w: 1.0, h: 1.3, depth: 2 });
-    return 10;
+    // A donkey pulling a fruit cart down one side of the street toward you, plodding.
+    const side = rand(s) < 0.5 ? -1 : 1;
+    add(s, { kind: 'donkey', z: z + 22, homeZ: z + 22, x: side * range(s, 1.3, 2.05), vz: -range(s, 1.8, 2.6), wake: WAKE, w: 0.85, h: 1.7, depth: 3.7 });
+    canLine(s, z + 4, -side * 1.5, -side * 1.5, 4);
+    return 28;
   }
   // Combo: jump then slide.
   add(s, { kind: 'crate', z, x: 0, w: ROAD_HALF, h: 0.9, depth: 0.9 });

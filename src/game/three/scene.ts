@@ -292,7 +292,7 @@ export class GameRenderer {
     const sized: Partial<Record<Entity['kind'], [number, number]>> = {
       taxi: [e.w * 2.5, e.depth * 1.15],
       scooter: [0.9, 1.7],
-      donkey: [e.w * 2.2, e.depth * 1.3],
+      donkey: [e.w * 2.3, e.depth * 1.1],
       crate: [e.w * 2.1, e.depth * 1.8],
     };
     const size = sized[e.kind];
@@ -400,7 +400,7 @@ export class GameRenderer {
         if (e.vz) o.position.y = Math.sin(t * 13 + e.id) * 0.015;
       }
       if (e.kind === 'donkey') {
-        o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
+        o.rotation.y = 0; // plods toward you
         const dk = o.getObjectByName('donkey');
         if (dk) animate(dk, ((t + e.id * 0.3) / DONKEY_CYCLE.seconds) * DONKEY_CYCLE.poses); // plodding
       }
