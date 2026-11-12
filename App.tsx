@@ -15,6 +15,7 @@ import { AboutScreen } from './src/screens/AboutScreen';
 import { ShopScreen } from './src/screens/ShopScreen';
 import { AchievementsScreen } from './src/screens/AchievementsScreen';
 import { suitOf } from './src/game/progression';
+import { jobsFor, preloadInBackground } from './src/game/three/preload';
 import { reportAchievements } from './src/services/achievements';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { RunReward, SaveData, Settings, applyRun, buySuit, loadSave, recordLocal, resetProgress, writeSave } from './src/services/storage';
@@ -43,7 +44,13 @@ export default function App() {
   routeRef.current = route;
 
   useEffect(() => {
-    loadSave().then(setSave);
+    loadSave().then((sv) => {
+      setSave(sv);
+      // Decode the 3D models while the player is in the menus, so picking a city starts the run quickly:
+      // the furthest city they can play first (the likeliest pick), then everything else.
+      preloadInBackground(jobsFor(CITIES[Math.max(0, Math.min(sv.unlocked, CITIES.length) - 1)], suitOf(sv.suit)));
+      preloadInBackground(jobsFor(undefined));
+    });
   }, []);
 
   // Settings take effect everywhere (t(), sounds, vibration, music) before the screens render.

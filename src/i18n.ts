@@ -79,6 +79,7 @@ const en = {
   menu: 'Menu',
 
   tapToRun: 'Tap to run!',
+  loading: 'Getting the street ready…',
   controlsHint: 'Drag ← → to steer · Swipe ↑ jump · Swipe ↓ slide',
   paused: 'Paused',
   resume: 'Resume',
@@ -273,6 +274,7 @@ const fr: Record<Key, string> = {
   menu: 'Menu',
 
   tapToRun: 'Touche pour courir !',
+  loading: 'On prépare la rue…',
   controlsHint: 'Glisse ← → pour diriger · ↑ sauter · ↓ glisser',
   paused: 'Pause',
   resume: 'Reprendre',
@@ -465,6 +467,7 @@ const ar: Record<Key, string> = {
   menu: 'القائمة',
 
   tapToRun: 'المس لتجري!',
+  loading: 'جارٍ تجهيز الشارع…',
   controlsHint: 'اسحب ← → للتوجيه · ↑ قفز · ↓ انزلاق',
   paused: 'إيقاف مؤقت',
   resume: 'تابع',
