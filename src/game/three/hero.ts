@@ -3,6 +3,7 @@ import { RIGGED_HERO } from './heroRigged';
 import { base64ToBytes, bakedTexture, normals } from './models/decode';
 import { tajinePickup } from './props';
 import type { Suit } from '../progression';
+import { JUMP_V } from '../engine';
 
 export type HeroRig = {
   root: THREE.Group; // faces -z (away from the camera), feet at y=0
@@ -262,80 +263,220 @@ function makeBoard() {
   return board;
 }
 
-type Pose = { runPhase: number; airborne: boolean; vy: number; sliding: boolean; skating: boolean; tajine: boolean };
+type Pose = {
+  runPhase: number;
+  airborne: boolean;
+  vy: number;
+  sliding: boolean;
+  skating: boolean;
+  tajine: boolean;
+  dt: number; // seconds since the last pose (game time)
+};
+
+// A pose as plain numbers, so poses can be blended. Angles are on the stand-in joints (model facing +z, negative
+// thigh x = forward); pelY is the hip height relative to standing.
+type P = {
+  thL: number; thR: number; shL: number; shR: number; foot: number;
+  armXL: number; armXR: number; armZ: number; fore: number;
+  torso: number; torsoY: number; head: number;
+  pelX: number; pelY: number; pelYaw: number;
+};
+const KEYS = ['thL', 'thR', 'shL', 'shR', 'foot', 'armXL', 'armXR', 'armZ', 'fore', 'torso', 'torsoY', 'head', 'pelX', 'pelY', 'pelYaw'] as const;
+const blank = (): P => ({ thL: 0, thR: 0, shL: 0, shR: 0, foot: 0, armXL: 0, armXR: 0, armZ: 0, fore: 0, torso: 0, torsoY: 0, head: 0, pelX: 0, pelY: 0, pelYaw: 0 });
+function mix(out: P, a: P, b: P, t: number) {
+  for (const k of KEYS) out[k] = a[k] + (b[k] - a[k]) * t;
+  return out;
+}
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const smooth = (v: number) => v * v * (3 - 2 * v);
+// Frame-rate independent ease toward a target: rate is roughly 1 / (time to get two thirds of the way).
+const ease = (from: number, to: number, rate: number, dt: number) => from + (to - from) * (1 - Math.exp(-rate * dt));
+
+// What the hero's body is doing between frames: how far into each move he is, so every change of pose eases in
+// instead of snapping.
+type Anim = {
+  air: number; // 0 running .. 1 jump pose
+  slide: number;
+  skate: number;
+  land: number; // seconds since touching down (Infinity when not landing)
+  landHard: number; // how hard that landing was, 0..1
+  lead: number; // which leg leads the jump: 1 left, -1 right
+  wasAir: boolean;
+  lastVy: number;
+};
+const LAND_TIME = 0.24;
+
+const runPose = (out: P, phase: number) => {
+  const s = Math.sin(phase);
+  const c = Math.cos(phase);
+  out.thL = -s * 0.9;
+  out.thR = s * 0.9;
+  out.shL = Math.max(0, -s) * 1.3 + 0.15;
+  out.shR = Math.max(0, s) * 1.3 + 0.15;
+  out.foot = -0.2;
+  out.armXL = s * 0.8;
+  out.armXR = -s * 0.8;
+  out.armZ = 1.25;
+  out.fore = 1.1;
+  out.torso = 0.18;
+  out.torsoY = s * 0.15;
+  out.head = -0.11;
+  out.pelX = 0;
+  out.pelY = Math.abs(c) * 0.06;
+  out.pelYaw = -s * 0.12;
+  return out;
+};
+
+const skatePose = (out: P) => {
+  Object.assign(out, blank());
+  out.shL = out.shR = 0.45;
+  out.thL = out.thR = -0.15;
+  out.foot = -0.1;
+  out.armZ = 0.9;
+  out.armXL = 0.15;
+  out.armXR = -0.15;
+  out.fore = 0.5;
+  out.torso = 0.25;
+  out.head = -0.15;
+  out.pelY = -0.12;
+  return out;
+};
+
+// The jump follows the arc: one leg drives forward off the ground with the arms swinging forward, both knees tuck at
+// the top, then the legs reach down for the street and the arms spread for balance.
+const airPose = (out: P, vy: number, lead: number) => {
+  const u = Math.max(-1, Math.min(1, vy / JUMP_V)); // 1 at take-off, 0 at the top, about -1 on landing
+  let front: number, back: number, kneeF: number, kneeB: number;
+  if (u >= 0) {
+    const tuck = smooth(1 - u);
+    front = -0.55 - 0.55 * tuck;
+    back = 0.45 - 0.95 * tuck;
+    kneeF = 0.6 + 0.8 * tuck;
+    kneeB = 1.1 + 0.4 * tuck;
+    out.armZ = 1.45 - 0.25 * u; // arms lift a little on the way up (not out in a T: that read as a scarecrow from behind)
+    out.torso = 0.05 + 0.1 * tuck;
+  } else {
+    const f = smooth(-u);
+    front = -1.1 + 0.8 * f;
+    back = -0.5 + 0.6 * f;
+    kneeF = 1.4 - 1.05 * f;
+    kneeB = 1.5 - 0.95 * f;
+    out.armZ = 1.45 - 0.2 * f; // and stay a touch out on the way down, for balance
+    out.torso = 0.15 + 0.15 * f;
+  }
+  out.thL = lead > 0 ? front : back;
+  out.thR = lead > 0 ? back : front;
+  out.shL = lead > 0 ? kneeF : kneeB;
+  out.shR = lead > 0 ? kneeB : kneeF;
+  out.foot = -0.1;
+  // The arm opposite the lead leg swings forward, as in a stride.
+  out.armXL = -0.35 + lead * 0.3; // negative swings an arm forward
+  out.armXR = -0.35 - lead * 0.3;
+  out.fore = 0.35;
+  out.torsoY = 0;
+  out.head = -out.torso * 0.6;
+  out.pelX = 0;
+  out.pelY = 0;
+  out.pelYaw = 0;
+  return out;
+};
+
+// Absorbing a landing: knees bend, hips drop, the body tips forward, the arms come down.
+const landPose = (out: P, hard: number) => {
+  Object.assign(out, blank());
+  out.thL = out.thR = -0.35 - 0.3 * hard;
+  out.shL = out.shR = 0.6 + 0.6 * hard;
+  out.foot = 0.15;
+  out.armXL = out.armXR = -0.25;
+  out.armZ = 1.3;
+  out.fore = 0.7;
+  out.torso = 0.3 + 0.25 * hard;
+  out.head = -0.25;
+  out.pelY = -0.07 - 0.12 * hard;
+  return out;
+};
+
+// Feet-first slide: lie back, legs forward.
+const slidePose = (out: P, base: number) => {
+  out.pelX = -1.25;
+  out.pelY = 0.35 - base;
+  out.pelYaw = 0;
+  out.thL = -0.3;
+  out.thR = -0.1;
+  out.shL = 0.1;
+  out.shR = 0.4;
+  out.foot = -0.1;
+  out.torso = 0.1;
+  out.torsoY = 0;
+  out.armXL = 0.6;
+  out.armXR = -0.6;
+  out.armZ = 1.0;
+  out.fore = 0.6;
+  out.head = 0.7;
+  return out;
+};
+
+const pose = blank();
+const other = blank();
 
 // Procedural animation: rotations are written on stand-in joints (old part-rig frame, model facing +z)
-// and driveSkin turns them into bone rotations.
+// and driveSkin turns them into bone rotations. Plain running plays the model's own run clip; jumps, landings,
+// slides and skating are code poses blended over it.
 export function poseHero(rig: HeroRig, p: Pose) {
   const j = rig.joints;
-  const s = Math.sin(p.runPhase);
-  const c = Math.cos(p.runPhase);
-  let legSwing = s * 0.9;
-  let armSwing = s * 0.8;
-  let lean = 0.18;
-  let bob = Math.abs(c) * 0.06;
-  let kneeL = Math.max(0, -s) * 1.3 + 0.15;
-  let kneeR = Math.max(0, s) * 1.3 + 0.15;
-  let armDown = 1.25;
+  const dt = Math.max(0, Math.min(0.1, p.dt));
+  const base = j.pelvis.userData.baseY ?? (j.pelvis.userData.baseY = j.pelvis.position.y);
+  const a: Anim = (rig.root.userData.anim ??= { air: 0, slide: 0, skate: 0, land: Infinity, landHard: 0, lead: 1, wasAir: false, lastVy: 0 });
 
-  if (p.skating) {
-    legSwing = 0;
-    armSwing = 0;
-    kneeL = kneeR = 0.45;
-    lean = 0.25;
-    bob = 0;
-    armDown = 0.9;
+  if (p.airborne && !a.wasAir) {
+    // Take off from whichever leg was planted: the one swinging forward leads.
+    a.lead = Math.sin(p.runPhase) >= 0 ? 1 : -1;
+    a.land = Infinity;
   }
-  if (p.airborne) {
-    legSwing = p.vy > 0 ? 0.6 : 0.2;
-    kneeL = kneeR = 1.4;
-    armSwing = 0;
-    armDown = p.vy > 0 ? -0.3 : 0.5; // arms up on the way up, like the original
-    bob = 0;
+  if (!p.airborne && a.wasAir && !p.sliding) {
+    a.land = 0;
+    a.landHard = clamp01((-a.lastVy - 3) / 8);
   }
+  a.wasAir = p.airborne;
+  a.lastVy = p.vy;
+  a.land += dt;
 
-  // Thighs swing opposite each other; model faces +z so negative x-rotation is forward.
-  j.thighL.rotation.set(-legSwing, 0, 0);
-  j.thighR.rotation.set(legSwing, 0, 0);
-  j.shinL.rotation.set(kneeL, 0, 0);
-  j.shinR.rotation.set(kneeR, 0, 0);
-  j.footL.rotation.set(-0.2, 0, 0);
-  j.footR.rotation.set(-0.2, 0, 0);
+  // Into the air fast (the body has to keep up with the launch), out of it through the landing.
+  a.air = ease(a.air, p.airborne ? 1 : 0, p.airborne ? 22 : 16, dt);
+  a.slide = ease(a.slide, p.sliding ? 1 : 0, p.sliding ? 20 : 12, dt);
+  a.skate = ease(a.skate, p.skating ? 1 : 0, 10, dt);
+  // Landing: a quick dip, then a slower rise back into the run.
+  const lt = a.land;
+  const land = lt >= LAND_TIME ? 0 : lt < 0.05 ? smooth(lt / 0.05) : smooth(1 - (lt - 0.05) / (LAND_TIME - 0.05));
 
+  runPose(pose, p.runPhase);
+  if (a.skate > 0.001) mix(pose, pose, skatePose(other), a.skate);
+  if (a.air > 0.001) mix(pose, pose, airPose(other, p.vy, a.lead), a.air);
+  if (land > 0.001) mix(pose, pose, landPose(other, a.landHard), land * 0.85);
+  if (a.slide > 0.001) mix(pose, pose, slidePose(other, base), a.slide);
+
+  j.thighL.rotation.set(pose.thL, 0, 0);
+  j.thighR.rotation.set(pose.thR, 0, 0);
+  j.shinL.rotation.set(pose.shL, 0, 0);
+  j.shinR.rotation.set(pose.shR, 0, 0);
+  j.footL.rotation.set(pose.foot, 0, 0);
+  j.footR.rotation.set(pose.foot, 0, 0);
   // Arms come down from the T-pose, then swing.
-  j.upperArmL.rotation.set(armSwing, 0, armDown);
-  j.upperArmR.rotation.set(-armSwing, 0, -armDown);
-  j.forearmL.rotation.set(0, p.airborne ? 0 : 1.1, 0);
-  j.forearmR.rotation.set(0, p.airborne ? 0 : -1.1, 0);
-
-  j.torso.rotation.set(lean, s * 0.15, 0);
-  j.head.rotation.set(-lean * 0.6, 0, 0);
-  j.pelvis.rotation.set(0, -s * 0.12, 0);
-  j.pelvis.position.y = rig.joints.pelvis.userData.baseY ?? (rig.joints.pelvis.userData.baseY = j.pelvis.position.y);
-  j.pelvis.position.y += bob;
-
-  if (p.sliding) {
-    // Feet-first slide: lie back, legs forward.
-    rig.body.rotation.x = 0;
-    j.pelvis.rotation.set(-1.25, 0, 0);
-    j.pelvis.position.y = 0.35;
-    j.thighL.rotation.set(-0.3, 0, 0);
-    j.thighR.rotation.set(-0.1, 0, 0);
-    j.shinL.rotation.set(0.1, 0, 0);
-    j.shinR.rotation.set(0.4, 0, 0);
-    j.torso.rotation.set(0.1, 0, 0);
-    j.upperArmL.rotation.set(0.6, 0, 1.0);
-    j.upperArmR.rotation.set(0.6, 0, -1.0);
-    j.head.rotation.set(0.7, 0, 0);
-  }
+  j.upperArmL.rotation.set(pose.armXL, 0, pose.armZ);
+  j.upperArmR.rotation.set(pose.armXR, 0, -pose.armZ);
+  j.forearmL.rotation.set(0, pose.fore, 0);
+  j.forearmR.rotation.set(0, -pose.fore, 0);
+  j.torso.rotation.set(pose.torso, pose.torsoY, 0);
+  j.head.rotation.set(pose.head, 0, 0);
+  j.pelvis.rotation.set(pose.pelX, pose.pelYaw, 0);
+  j.pelvis.position.y = base + pose.pelY;
 
   rig.tajine.visible = p.tajine;
   rig.board.visible = p.skating;
-  rig.body.position.y = p.skating ? 0.15 : 0;
+  rig.body.position.y = 0.15 * a.skate;
   if (rig.skin) {
-    // Plain running plays the model's own run; jumps, slides and skating use the code poses. Ease between.
-    const target = p.airborne || p.sliding || p.skating ? 0 : 1;
-    rig.skin.runWeight += (target - rig.skin.runWeight) * 0.25;
+    // The run clip plays only while nothing else is going on; it fades as the other poses fade in.
+    rig.skin.runWeight = 1 - Math.max(a.air, a.slide, a.skate, land * 0.85);
     driveSkin(rig, p.runPhase);
   }
 }

@@ -405,7 +405,7 @@ export class GameRenderer {
     const frameDt = Math.max(1 / 120, Math.min(0.05, s.time - this.lastTime));
     const lean = Math.max(-0.3, Math.min(0.3, ((s.x - this.heroX) / frameDt) * 0.035));
     this.heroX = s.x;
-    this.heroLean += (lean - this.heroLean) * 0.3;
+    this.heroLean += (lean - this.heroLean) * (1 - Math.exp(-frameDt * 18));
     this.hero.root.rotation.set(0, -this.heroLean * 0.5, -this.heroLean);
     poseHero(this.hero, {
       runPhase: s.runPhase,
@@ -414,6 +414,7 @@ export class GameRenderer {
       sliding: s.slide > 0,
       skating: s.skate > 0,
       tajine: s.tajine > 0,
+      dt: s.time - this.lastTime,
     });
     this.bubble.visible = s.shield > 0 && (s.shield > 2 || Math.floor(t * 8) % 2 === 0); // blinks as it runs out
     if (this.bubble.visible) {

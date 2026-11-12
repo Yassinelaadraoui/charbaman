@@ -4,10 +4,18 @@ import { CITIES, City } from './cities';
 // y is height above the road.
 export const ROAD_HALF = 3;
 export const PLAYER_HALF = 0.35;
-// A snappy jump: quick up, quicker down (about 0.6 s in the air, 2.1 m high, clear of 0.9 m crates for 0.45 s).
+// The jump: a quick launch, a short float at the top and a firm fall, about 0.6 s in the air and 1.55 m high,
+// clear of 0.9 m crates for 0.42 s. It used to shoot 2.1 m up (higher than the hero is tall) and drop straight
+// back with no pause at the top, which read as a twitch rather than a leap. It stays short on purpose: at
+// skateboard speed a longer jump lands on the next crate.
 const GRAVITY = 40;
-const FALL_GRAVITY = 54;
-const JUMP_V = 13;
+const FALL_GRAVITY = 50;
+const APEX_V = 2.5; // below this vertical speed the hero is near the top of the arc
+const APEX_GRAVITY = 0.55; // and gravity eases off there, for a moment of hang time
+export const JUMP_V = 11;
+// Run cycle: metres covered per radian of runPhase. 1.15 gives about two strides a second at street speed, so
+// the feet keep up with the ground instead of gliding.
+const STRIDE = 1.15;
 const JUMP_BUFFER = 0.15; // a jump pressed this long before landing still happens
 const WAKE = 80; // oncoming cars set off when you are this close
 const SLIDE_TIME = 0.7;
@@ -123,6 +131,7 @@ export type GameState = {
   chaseGap: number;
   stun: number;
   jumpBuffer: number;
+  slideQueued: boolean; // slide pressed in the air: slam down and slide on landing
   combo: number; // bottles in the current chain
   comboTimer: number; // seconds left to grab the next one
   bonus: number; // points from combo multipliers and near misses
@@ -203,6 +212,7 @@ export function createGame(mode: GameMode, cityIndex = 0): GameState {
     chaseGap: CHASE_GAP,
     stun: 0,
     jumpBuffer: 0,
+    slideQueued: false,
     combo: 0,
     comboTimer: 0,
     bonus: 0,
@@ -375,6 +385,7 @@ function respawn(s: GameState) {
   s.y = 0;
   s.vy = 0;
   s.slide = 0;
+  s.slideQueued = false;
   s.speed = 0;
   s.health = MAX_HEALTH;
   s.invuln = 2;
@@ -482,25 +493,31 @@ export function step(s: GameState, dtRaw: number, inputRaw: Input) {
   if (s.jumpBuffer > 0 && grounded) {
     s.vy = JUMP_V;
     s.slide = 0;
+    s.slideQueued = false;
     s.jumpBuffer = 0;
   }
   if (input.slide) {
     if (grounded) s.slide = Math.max(s.slide, SLIDE_TIME);
-    else s.vy = Math.min(s.vy, -JUMP_V); // slam down, then slide on landing
+    else {
+      s.vy = Math.min(s.vy, -JUMP_V); // slam down, then slide on landing
+      s.slideQueued = true;
+    }
   }
   if (!grounded || s.vy > 0) {
-    s.vy -= (s.vy > 0 ? GRAVITY : FALL_GRAVITY) * dt;
+    const g = (s.vy > 0 ? GRAVITY : FALL_GRAVITY) * (Math.abs(s.vy) < APEX_V ? APEX_GRAVITY : 1);
+    s.vy -= g * dt;
     s.y = Math.max(0, s.y + s.vy * dt);
     if (s.y === 0) {
       s.vy = 0;
-      if (input.slide) s.slide = SLIDE_TIME;
+      if (s.slideQueued || input.slide) s.slide = SLIDE_TIME;
+      s.slideQueued = false;
     }
   }
   s.slide = Math.max(0, s.slide - dt);
 
   const z0 = s.z;
   s.z += s.speed * dt;
-  s.runPhase += dt * (s.speed / 1.6);
+  s.runPhase += dt * (s.speed / STRIDE);
 
   if (s.magnet > 0) {
     // Bottles and notes ahead drift toward you.
