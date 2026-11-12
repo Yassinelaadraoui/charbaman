@@ -162,14 +162,30 @@ const bakedMats = new Map<string, THREE.Material>();
 // People and animals get smooth normals; everything else keeps flat PS1 facets.
 const SMOOTH = new Set(['boy', 'chicken', 'donkey', 'oldman']);
 
-export function model(key: string, data: BakedModel, fit: { height?: number; length?: number; maxSide?: number }, recolor?: (px: Uint8Array, i: number) => void) {
+// Decoding an atlas (pure-JS JPEG) is the slow part of building a model, so each atlas is decoded once and
+// shared by every model key that uses it unpainted (the police car and the chaser van, the two bottles).
+const bakedTextures = new Map<BakedModel, THREE.Texture>();
+type Recolor = (px: Uint8Array, i: number) => void;
+
+function bakedMaterial(key: string, data: BakedModel, recolor?: Recolor) {
   let material = bakedMats.get(key);
   if (!material) {
+    let map = recolor ? undefined : bakedTextures.get(data);
+    if (!map) {
+      map = bakedTexture(data, recolor);
+      if (!recolor) bakedTextures.set(data, map);
+    }
     // Cut-out textures (palm fronds) use alpha testing: no sorting, cheap on phones.
-    material = new THREE.MeshLambertMaterial({ map: bakedTexture(data, recolor), side: THREE.DoubleSide, alphaTest: data.alpha ? 0.5 : 0 });
+    material = new THREE.MeshLambertMaterial({ map, side: THREE.DoubleSide, alphaTest: data.alpha ? 0.5 : 0 });
     bakedMats.set(key, material);
   }
-  const m = new THREE.Mesh(geo(`model-${key}`, () => bakedGeometry(data, SMOOTH.has(key))), material);
+  return material;
+}
+
+const bakedGeo = (key: string, data: BakedModel) => geo(`model-${key}`, () => bakedGeometry(data, SMOOTH.has(key)));
+
+export function model(key: string, data: BakedModel, fit: { height?: number; length?: number; maxSide?: number }, recolor?: Recolor) {
+  const m = new THREE.Mesh(bakedGeo(key, data), bakedMaterial(key, data, recolor));
   const [w, h, d] = data.size;
   let k = fit.length !== undefined ? fit.length / Math.max(w, d) : (fit.height ?? 1) / h;
   if (fit.maxSide !== undefined) k = Math.min(k, fit.maxSide / Math.max(w, d));
@@ -738,14 +754,66 @@ export function modelHouse(c: City, variant: number, side: number) {
   return { obj: g, depth: hm.data.size[2] * m.scale.x };
 }
 
-// Decode a city's textures up front (at the start screen) so nothing stutters mid-run.
-export function warmModels(c: City) {
-  for (const hm of CITY_HOUSES[c.id] ?? []) model(hm.key, hm.data, {});
-  model('dacia', DACIA, {}, grandTaxiPaint);
-  model('police', POLICE_CAR, {});
-  model('boy', BOY, {});
-  for (const [key, data] of [['juice', JUICE_BOTTLE], ['juice-giant', JUICE_BOTTLE], ['cash', BANKNOTE], ['apples', APPLE_BOX], ['palm', PALM_TREE], ['maple', MAPLE_TREE], ['teatable', TEA_TABLE], ['tagine', TAGINE], ['majmar', MAJMAR], ['stall', FRUIT_STALL], ['spice', SPICE_MARKET], ['donkey', DONKEY], ['chicken', CHICKEN], ['busstop', BUS_STOP], ['minesign', MINE_SIGN], ['oldman', OLD_MAN]] as const) model(key, data, {});
+// Every baked model a run can show, keyed as model() keys them, so they can be decoded ahead of time.
+const STREET_MODELS: [string, BakedModel, Recolor?][] = [
+  ['dacia', DACIA, grandTaxiPaint],
+  ['police', POLICE_CAR],
+  ['police-chaser', POLICE_CAR],
+  ['boy', BOY],
+  ['juice', JUICE_BOTTLE],
+  ['juice-giant', JUICE_BOTTLE],
+  ['cash', BANKNOTE],
+  ['apples', APPLE_BOX],
+  ['palm', PALM_TREE],
+  ['maple', MAPLE_TREE],
+  ['teatable', TEA_TABLE],
+  ['tagine', TAGINE],
+  ['majmar', MAJMAR],
+  ['stall', FRUIT_STALL],
+  ['spice', SPICE_MARKET],
+  ['donkey', DONKEY],
+  ['chicken', CHICKEN],
+  ['busstop', BUS_STOP],
+  ['minesign', MINE_SIGN],
+  ['oldman', OLD_MAN],
+];
+const LANDMARK_MODELS: Partial<Record<Landmark, [string, BakedModel]>> = {
+  mosque: ['mosque', HASSAN_MOSQUE],
+  koutoubia: ['koutoubia', HASSAN_TOWER],
+  bab: ['bab', CITY_GATE],
+  ramparts: ['ramparts', RAMPARTS],
+};
+
+// One small piece of up-front work. Running a job twice is harmless: everything it builds is cached.
+export type WarmJob = { key: string; run: () => void };
+
+// The decoding a city needs before its first frame (no city: every city, for the endless run), split into
+// small jobs so a loader can keep moving between them and the menus can do them in the background.
+export function warmJobs(c?: City): WarmJob[] {
+  const jobs: WarmJob[] = [];
+  const add = (key: string, data: BakedModel, recolor?: Recolor) => {
+    jobs.push({ key: `tex:${key}`, run: () => bakedMaterial(key, data, recolor) });
+    jobs.push({ key: `geo:${key}`, run: () => bakedGeo(key, data) });
+  };
+  const houses = c ? (CITY_HOUSES[c.id] ?? []) : Object.values(CITY_HOUSES).flat();
+  for (const hm of houses) add(hm.key, hm.data);
+  for (const lm of new Set(c ? c.landmarks : (Object.keys(LANDMARK_MODELS) as Landmark[]))) {
+    const m = LANDMARK_MODELS[lm];
+    if (m) add(m[0], m[1]);
+  }
+  for (const [key, data, recolor] of STREET_MODELS) add(key, data, recolor);
+  jobs.push({ key: 'geo:boy-walk', run: () => geo('boy-walk', () => posedGeometry(BOY, KID_CYCLE.poses, kidPose, true)) });
+  jobs.push({ key: 'geo:oldman-seated', run: () => geo('oldman-seated', seatedOldMan) });
+  return jobs;
 }
+
+// Decode a city's models up front (at the start screen) so nothing stutters mid-run.
+export function warmModels(c: City) {
+  for (const j of warmJobs(c)) j.run();
+}
+
+// The decoded atlas of a model key, so the renderer can upload it to the GPU before the run, not mid-run.
+export const bakedMap = (key: string) => (bakedMats.get(key) as THREE.MeshLambertMaterial | undefined)?.map ?? undefined;
 
 // A bus shelter on the pavement, open side to the street.
 export function busStop(side: number) {

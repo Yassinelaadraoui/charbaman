@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Animated, AppState, Easing, BackHandler, PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, BackHandler, PanResponder, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CITIES } from '../game/cities';
 import { EntityKind, GameEvent, GameMode, GameState, Input, ROAD_HALF, city, comboMultiplier, createGame, progress, start, starsOf, step } from '../game/engine';
 import { RunStats, Suit, SUITS } from '../game/progression';
-import { GLView } from 'expo-gl';
+import { ExpoWebGLRenderingContext, GLView } from 'expo-gl';
 import { GameRenderer } from '../game/three/scene';
+import { jobsFor, pausePreload, prepare } from '../game/three/preload';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Bottle } from '../game/sprites';
 import { colors } from '../theme';
 import { hapticsOn, initSounds, play } from '../services/sound';
@@ -90,6 +92,12 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
   const slowmo = useRef(0);
   const [hint, setHint] = useState<string | null>(null);
   const hintAnim = useRef(new Animated.Value(0)).current;
+  // The loader stays up until the city is decoded, built and drawn once, so the first frame you see is ready.
+  const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(true);
+  const loaderFade = useRef(new Animated.Value(1)).current;
+  const [loadShare, setLoadShare] = useState(0);
+  const unmounted = useRef(false);
 
   const showHint = (text: string) => {
     setHint(text);
@@ -237,8 +245,38 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
     }
   };
 
-  useEffect(() => {
+  // Decode what the run needs (most of it was done in the menus), then build the renderer and draw one frame.
+  const load = async (gl: ExpoWebGLRenderingContext) => {
+    const jobs = jobsFor(mode === 'endless' ? undefined : CITIES[cityIndex], suit);
+    await new Promise((r) => setTimeout(r, 0)); // let the loader paint first
+    try {
+      if (!(await prepare(jobs, (share) => setLoadShare(share * 0.9), () => unmounted.current))) return;
+    } catch (e) {
+      console.warn('Preparing the run failed; the scene will build what it needs as it goes', e);
+    }
+    const r = new GameRenderer(gl as unknown as WebGLRenderingContext, W, H, () => gl.endFrameEXP());
+    r.lite = lite;
+    r.dress(suit);
+    if (Platform.OS === 'web') (globalThis as { __charbaGfx?: GameRenderer }).__charbaGfx = r;
+    r.prime(game.current, jobs.filter((j) => j.key.startsWith('tex:')).map((j) => j.key.slice(4)));
+    if (unmounted.current) return;
+    gfx.current = r;
+    loadingRef.current = false;
+    setLoadShare(1);
+    Animated.timing(loaderFade, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => setLoading(false));
     showBanner(mode === 'endless' ? t('banner.endless') : cityName(CITIES[cityIndex]).toUpperCase());
+  };
+
+  // No background decoding during a run: it would make the game stutter.
+  useEffect(() => {
+    pausePreload(true);
+    return () => {
+      unmounted.current = true;
+      pausePreload(false);
+    };
+  }, []);
+
+  useEffect(() => {
     initSounds();
     let raf = 0;
     let last = 0;
@@ -246,6 +284,11 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
       const dt = last ? (ts - last) / 1000 : 0;
       last = ts;
       const s = game.current;
+      if (loadingRef.current) {
+        input.current = { steer: 0, jump: false, slide: false };
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       if (!pausedRef.current) {
         const kb = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0);
         input.current.steer += kb * 9 * dt;
@@ -346,6 +389,7 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
     const down = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft' || e.key === 'a') keys.current.left = true;
       if (e.key === 'ArrowRight' || e.key === 'd') keys.current.right = true;
+      if (loadingRef.current) return;
       if (e.key === 'ArrowUp' || e.key === ' ' || e.key === 'w') {
         start(game.current);
         input.current.jump = true;
@@ -374,7 +418,7 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (_, g) => {
           gesture.current = { lastX: g.x0, lastY: g.y0, anchorY: g.y0, startT: Date.now(), lastSwipe: 0, swiped: false, moved: 0 };
-          start(game.current);
+          if (!loadingRef.current) start(game.current);
         },
         onPanResponderMove: (_, g) => {
           const gs = gesture.current;
@@ -416,10 +460,7 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
       <GLView
         style={styles.gl}
         onContextCreate={(gl) => {
-          gfx.current = new GameRenderer(gl as unknown as WebGLRenderingContext, W, H, () => gl.endFrameEXP());
-          gfx.current.lite = lite;
-          gfx.current.dress(suit);
-          if (Platform.OS === 'web') (globalThis as { __charbaGfx?: GameRenderer }).__charbaGfx = gfx.current;
+          load(gl);
         }}
       />
 
@@ -475,11 +516,27 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
         <Text style={styles.bannerText}>{bannerText}</Text>
       </Animated.View>
 
-      {s.phase === 'ready' && (
+      {s.phase === 'ready' && !loading && (
         <View style={[styles.ready, { bottom: insets.bottom + 40 }]} pointerEvents="none">
           <Text style={styles.readyTitle}>{t('tapToRun')}</Text>
           <Text style={styles.readyHint}>{t('controlsHint')}</Text>
         </View>
+      )}
+
+      {loading && (
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: loaderFade }]} accessibilityRole="progressbar" accessibilityLabel={t('loading')}>
+          <LinearGradient
+            colors={mode === 'endless' ? [colors.orangeDeep, '#7A2E00'] : [CITIES[cityIndex].skyTop, CITIES[cityIndex].skyBottom]}
+            style={styles.loader}
+          >
+            <Text style={styles.loaderCity}>{mode === 'endless' ? t('banner.endless') : cityName(CITIES[cityIndex]).toUpperCase()}</Text>
+            <ActivityIndicator size="large" color={colors.white} style={{ marginTop: 22 }} />
+            <View style={styles.loaderBar}>
+              <View style={[styles.loaderFill, { width: `${Math.round(loadShare * 100)}%` }]} />
+            </View>
+            <Text style={styles.loaderText}>{t('loading')}</Text>
+          </LinearGradient>
+        </Animated.View>
       )}
 
       {paused && (
@@ -501,6 +558,11 @@ const shadow = { textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width:
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ink, overflow: 'hidden' },
+  loader: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  loaderCity: { color: colors.white, fontWeight: '900', fontSize: 36, textAlign: 'center', ...shadow },
+  loaderBar: { width: '70%', maxWidth: 320, height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.3)', marginTop: 22, overflow: 'hidden' },
+  loaderFill: { height: 10, borderRadius: 5, backgroundColor: colors.gold },
+  loaderText: { color: colors.white, fontWeight: '800', fontSize: 15, marginTop: 10, ...shadow },
   gl: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   hud: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16 },
   hudRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

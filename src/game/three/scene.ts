@@ -6,7 +6,7 @@ import type { Suit } from '../progression';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
 import { asphaltTexture, blobTexture, glowTexture, paverTexture } from './surfaces';
-import { entityObject, flatten, flag, giantBottle, policeChaser, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
+import { entityObject, flatten, flag, giantBottle, policeChaser, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, bakedMap, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -177,6 +177,23 @@ export class GameRenderer {
 
   dress(suit: Suit) {
     dressHero(this.hero, suit);
+  }
+
+  // Before the first frame of a run: build the city, upload the atlases it may show (by model key) to the GPU
+  // and draw one frame, so shaders compile and the street's props are built while the loader is still up.
+  prime(s: GameState, modelKeys: string[]) {
+    this.setCity(cityOf(s));
+    const maps = new Set<THREE.Texture>();
+    for (const k of modelKeys) {
+      const t = bakedMap(k);
+      if (t) maps.add(t);
+    }
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
+      if (m && !Array.isArray(m) && m.map) maps.add(m.map);
+    });
+    for (const t of maps) this.renderer.initTexture(t);
+    this.render(s);
   }
 
   burst(kind: BurstKind, x: number, y: number, z: number) {

@@ -58,7 +58,13 @@ function uint16(s: string) {
   return out;
 }
 
-function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3D>; skin: SkinDriver } {
+// The hero's mesh and classic-suit atlas take a while to decode, and every run uses the same ones, so they are
+// built once (in the background, from the menus) and shared by every run's rig.
+let heroGeo: THREE.BufferGeometry | undefined;
+let heroMap: THREE.Texture | undefined;
+
+function heroGeometry() {
+  if (heroGeo) return heroGeo;
   const d = RIGGED_HERO;
   const q = uint16(d.pos);
   const pos = new Float32Array(q.length);
@@ -78,6 +84,23 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
   geo.setIndex(new THREE.BufferAttribute(uint16(d.index), 1));
   // Every triangle has its own corners (its own atlas patch), so average normals by position: smooth skin.
   geo.setAttribute('normal', new THREE.BufferAttribute(normals(pos, q, true), 3));
+  heroGeo = geo;
+  return geo;
+}
+
+function heroAtlas() {
+  heroMap ??= bakedTexture({ size: [], min: [], span: [], pos: '', uv: '', atlas: RIGGED_HERO.atlas ?? 1024, jpeg: RIGGED_HERO.jpeg });
+  return heroMap;
+}
+
+export const heroJobs: { key: string; run: () => void }[] = [
+  { key: 'hero:geo', run: heroGeometry },
+  { key: 'hero:tex', run: heroAtlas },
+];
+
+function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3D>; skin: SkinDriver } {
+  const d = RIGGED_HERO;
+  const geo = heroGeometry();
 
   const bones = d.bones.map((b) => {
     const bone = new THREE.Bone();
@@ -96,7 +119,7 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
   d.bones.forEach((b, i) => (b.parent >= 0 ? bones[b.parent] : model).add(bones[i]));
   const inverses = [];
   for (let i = 0; i < bones.length; i++) inverses.push(new THREE.Matrix4().fromArray(d.ibm, i * 16));
-  const map = bakedTexture({ size: [], min: [], span: [], pos: '', uv: '', atlas: d.atlas ?? 1024, jpeg: d.jpeg });
+  const map = heroAtlas();
   const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshLambertMaterial({ map }));
   mesh.frustumCulled = false;
   model.add(mesh);
@@ -195,6 +218,19 @@ function driveSkin(rig: HeroRig, runPhase: number) {
 const suitMaps = new Map<string, THREE.Texture>();
 export function dressHero(rig: HeroRig, suit: Suit) {
   if (suit.id === 'classic') return; // a new rig already wears the classic suit
+  const map = suitMap(suit);
+  rig.body.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (m.isSkinnedMesh) {
+      (m.material as THREE.MeshLambertMaterial).map = map;
+      (m.material as THREE.MeshLambertMaterial).needsUpdate = true;
+    }
+  });
+}
+
+// A suit's atlas, painted once and kept. The classic suit is the model's own atlas.
+export function suitMap(suit: Suit) {
+  if (suit.id === 'classic') return heroAtlas();
   let map = suitMaps.get(suit.id);
   if (!map) {
     const [mr, mg, mb] = suit.main;
@@ -219,13 +255,7 @@ export function dressHero(rig: HeroRig, suit: Suit) {
     });
     suitMaps.set(suit.id, map);
   }
-  rig.body.traverse((o) => {
-    const m = o as THREE.SkinnedMesh;
-    if (m.isSkinnedMesh) {
-      (m.material as THREE.MeshLambertMaterial).map = map!;
-      (m.material as THREE.MeshLambertMaterial).needsUpdate = true;
-    }
-  });
+  return map;
 }
 
 export function buildHero(): HeroRig {
