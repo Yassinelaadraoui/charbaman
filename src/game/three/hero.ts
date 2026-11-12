@@ -27,7 +27,7 @@ type SkinDriver = {
 
 // The model's own running loop, one stride per 2 pi of runPhase.
 type RunClip = {
-  bones: { bone: THREE.Bone; rest: THREE.Quaternion; frames: THREE.Quaternion[] }[];
+  bones: { bone: THREE.Bone; rest: THREE.Quaternion; frames: THREE.Quaternion[]; finger: boolean }[];
   moved: { bone: THREE.Bone; rest: THREE.Vector3; frames: THREE.Vector3[] }[];
 };
 
@@ -133,6 +133,7 @@ function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3
       bones: r.bones.map((bi, k) => ({
         bone: bones[bi],
         rest: bones[bi].quaternion.clone(),
+        finger: bones[bi].name.includes('Finger'),
         frames: r.q.map((f) => new THREE.Quaternion(f[k * 4], f[k * 4 + 1], f[k * 4 + 2], f[k * 4 + 3])),
       })),
       moved: r.tBones.map((bi, k) => ({
@@ -174,13 +175,17 @@ function driveSkin(rig: HeroRig, runPhase: number) {
     const t = f - a;
     for (const r of run.bones) {
       clipQ.slerpQuaternions(r.frames[a], r.frames[b], t);
-      r.bone.quaternion.slerp(clipQ, w);
+      // Fingers keep the clip's curled fists whatever the body is doing: at rest the hands are flat and open.
+      r.bone.quaternion.slerp(clipQ, r.finger ? 1 : w);
     }
     for (const r of run.moved) {
       clipV.lerpVectors(r.frames[a], r.frames[b], t);
       r.bone.position.lerpVectors(r.rest, clipV, w);
     }
-  } else if (run) for (const r of run.moved) r.bone.position.copy(r.rest);
+  } else if (run) {
+    for (const r of run.moved) r.bone.position.copy(r.rest);
+    for (const r of run.bones) if (r.finger) r.bone.quaternion.copy(r.frames[0]);
+  }
   // The clip bobs the hips itself, so the code poses' hip height fades out as it takes over.
   k.model.position.y = (rig.joints.pelvis.position.y - k.baseY) * (1 - w);
   // The tajine sits on the head wherever the head goes.
@@ -372,7 +377,7 @@ const airPose = (out: P, vy: number, lead: number) => {
   // The arm opposite the lead leg swings forward, as in a stride.
   out.armXL = -0.35 + lead * 0.3; // negative swings an arm forward
   out.armXR = -0.35 - lead * 0.3;
-  out.fore = 0.35;
+  out.fore = 1.0; // elbows stay bent, as in the run
   out.torsoY = 0;
   out.head = -out.torso * 0.6;
   out.pelX = 0;
@@ -389,7 +394,7 @@ const landPose = (out: P, hard: number) => {
   out.foot = 0.15;
   out.armXL = out.armXR = -0.25;
   out.armZ = 1.3;
-  out.fore = 0.7;
+  out.fore = 1.0;
   out.torso = 0.3 + 0.25 * hard;
   out.head = -0.25;
   out.pelY = -0.07 - 0.12 * hard;
