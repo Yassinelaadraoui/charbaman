@@ -78,7 +78,8 @@ new build number automatically. Raise `version` in `app.json` for each public up
 
 Everything to paste is in `store/listing.md`: names, subtitles, descriptions and keywords in English, French and
 Arabic (all within the limits), plus the answers for the age rating, App Privacy and Data safety forms.
-Screenshots are in `store/screenshots/`, the Play feature graphic is `store/feature-graphic.png`.
+Every image the stores ask for is listed in `store/README.md`: screenshots in `store/screenshots/`, icons in
+`store/ios/` and `store/android/`, the Play feature graphic in `store/android/feature-graphic.png`.
 
 App Review notes: "No login required. Tap Play the Cities, then Casablanca."
 

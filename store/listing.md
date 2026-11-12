@@ -8,8 +8,10 @@ Copy these into App Store Connect and the Google Play Console. Character limits 
 - **Privacy policy URL:** host `store/privacy-policy.html` (for example with GitHub Pages) and paste its address
 - **Screenshots:** `store/screenshots/ios-6.7` (1290 × 2796, App Store 6.7-inch and 6.9-inch slots),
   `store/screenshots/android-phone` (1080 × 1920), French and Arabic sets in `ios-6.7-fr` and `ios-6.7-ar`
-- **Feature graphic (Google Play):** `store/feature-graphic.png` (1024 × 500)
-- **Icon:** `assets/icon.png` (1024 × 1024, no transparency)
+- **Feature graphic (Google Play):** `store/android/feature-graphic.png` (1024 × 500)
+- **Icons:** App Store `store/ios/app-icon-1024.png` (1024 × 1024, no transparency; EAS also builds it into the app
+  from `assets/icon.png`), Google Play `store/android/play-icon-512.png` (512 × 512)
+- **Full asset list and logo files:** `store/README.md`
 
 ---
 
