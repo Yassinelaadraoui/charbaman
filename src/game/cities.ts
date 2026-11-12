@@ -13,7 +13,8 @@ export type Landmark =
   | 'mosque' // Hassan II Mosque model
   | 'koutoubia' // tower model standing in for the Koutoubia
   | 'bab' // city gate model
-  | 'ramparts'; // earthen city walls model
+  | 'ramparts' // earthen city walls model
+  | 'mountain'; // the Rif behind Chefchaouen, the Anti-Atlas behind Agadir
 
 export type City = {
   id: string;
@@ -38,6 +39,8 @@ export type City = {
   baseSpeed: number; // m/s
   density: number; // 0..1 obstacle density
   seed: number;
+  night?: boolean; // lamps lit, dark sky
+  chaser?: 'bottle' | 'police'; // what chases you at the end (the giant Charba unless set)
 };
 
 export const CITIES: City[] = [
@@ -66,6 +69,31 @@ export const CITIES: City[] = [
     seed: 11,
   },
   {
+    id: 'rabat',
+    name: 'Rabat',
+    arabic: 'الرباط',
+    tagline: 'Night run to the Hassan Tower',
+    skyTop: '#0B1A3A',
+    skyBottom: '#3A4E7A',
+    sun: '#9DB4FF',
+    far: '#2C3A5C',
+    near: '#E8E2D4',
+    accent: '#2A7F62',
+    ground: ['#9C968A', '#938D82'],
+    road: ['#3E434B', '#3A3F47'],
+    curb: ['#E8E2D4', '#C1272D'],
+    line: '#F2EFE6',
+    taxi: '#2B6CB0',
+    landmarks: ['koutoubia', 'ramparts', 'bab', 'lighthouse'],
+    sea: '#16325C',
+    length: 1150,
+    chaseLength: 390,
+    baseSpeed: 15.4,
+    density: 0.48,
+    seed: 13,
+    night: true,
+  },
+  {
     id: 'safi',
     name: 'Safi',
     arabic: 'آسفي',
@@ -90,6 +118,30 @@ export const CITIES: City[] = [
     seed: 17,
   },
   {
+    id: 'agadir',
+    name: 'Agadir',
+    arabic: 'أكادير',
+    tagline: 'Race the seafront under the Kasbah',
+    skyTop: '#2F9BE0',
+    skyBottom: '#FFE9C7',
+    sun: '#FFF6D5',
+    far: '#B9A07E',
+    near: '#F7F2E7',
+    accent: '#D9822B',
+    ground: ['#E9DCC3', '#E0D2B7'],
+    road: ['#5E6166', '#585B60'],
+    curb: ['#F7F2E7', '#D9822B'],
+    line: '#FFFFFF',
+    taxi: '#F08A24',
+    landmarks: ['fortress', 'mountain', 'palm', 'palm'],
+    sea: '#1C86C8',
+    length: 1220,
+    chaseLength: 410,
+    baseSpeed: 16.2,
+    density: 0.52,
+    seed: 19,
+  },
+  {
     id: 'marrakech',
     name: 'Marrakech',
     arabic: 'مراكش',
@@ -111,6 +163,7 @@ export const CITIES: City[] = [
     baseSpeed: 16.5,
     density: 0.55,
     seed: 23,
+    chaser: 'police', // the medina police want a word
   },
   {
     id: 'fes',
@@ -134,6 +187,29 @@ export const CITIES: City[] = [
     baseSpeed: 17.5,
     density: 0.65,
     seed: 37,
+  },
+  {
+    id: 'chefchaouen',
+    name: 'Chefchaouen',
+    arabic: 'شفشاون',
+    tagline: 'Fly through the blue city',
+    skyTop: '#4A90D9',
+    skyBottom: '#DDEBFA',
+    sun: '#FFFFFF',
+    far: '#7FA0C4',
+    near: '#7FB2E5',
+    accent: '#1F5FAF',
+    ground: ['#A9C6E8', '#9FBDE0'],
+    road: ['#6C7A8C', '#657384'],
+    curb: ['#FFFFFF', '#2F6FC0'],
+    line: '#FFFFFF',
+    taxi: '#3B7DD8',
+    landmarks: ['mountain', 'minaret', 'ramparts', 'mountain'],
+    length: 1400,
+    chaseLength: 470,
+    baseSpeed: 18,
+    density: 0.7,
+    seed: 43,
   },
   {
     id: 'tangier',

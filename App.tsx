@@ -12,10 +12,14 @@ import { LeaderboardScreen } from './src/screens/LeaderboardScreen';
 import { HowToScreen } from './src/screens/HowToScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { AboutScreen } from './src/screens/AboutScreen';
+import { ShopScreen } from './src/screens/ShopScreen';
+import { AchievementsScreen } from './src/screens/AchievementsScreen';
+import { suitOf } from './src/game/progression';
+import { reportAchievements } from './src/services/achievements';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
-import { SaveData, Settings, loadSave, recordLocal, resetProgress, writeSave } from './src/services/storage';
+import { RunReward, SaveData, Settings, applyRun, buySuit, loadSave, recordLocal, resetProgress, writeSave } from './src/services/storage';
 import { setHaptics, setMuted } from './src/services/sound';
-import { playMusic, setMusicEnabled, suspendMusic } from './src/services/music';
+import { playMusic, runTrack, setMusicEnabled, suspendMusic } from './src/services/music';
 import { setLang } from './src/i18n';
 import { colors } from './src/theme';
 
@@ -25,9 +29,11 @@ type Route =
   | { name: 'howto' }
   | { name: 'settings' }
   | { name: 'about' }
+  | { name: 'shop' }
+  | { name: 'achievements' }
   | { name: 'leaderboard'; tab?: string }
   | { name: 'game'; mode: 'stage' | 'endless'; cityIndex: number; run: number }
-  | { name: 'result'; result: RunResult; isBest: boolean; at: number };
+  | { name: 'result'; result: RunResult; isBest: boolean; at: number; reward: RunReward };
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ name: 'title' });
@@ -51,8 +57,9 @@ export default function App() {
 
   // The menu theme plays everywhere but in a run, which starts its own.
   useEffect(() => {
-    if (save) playMusic(route.name === 'game' ? 'run' : 'menu');
-  }, [route.name, save]);
+    if (save) playMusic(route.name === 'game' ? runTrack(route.mode === 'stage' ? CITIES[route.cityIndex].id : undefined) : 'menu');
+     
+  }, [route, save]);
 
   // No music while the app is in the background.
   useEffect(() => {
@@ -86,6 +93,10 @@ export default function App() {
     const isBest = result.score > (save.best[key] ?? 0);
     const at = Date.now();
     let next = recordLocal(save, key, { name: save.name || 'Charbaman', score: result.score, cans: result.cans, at });
+    if (result.coached) next = { ...next, coached: true };
+    const applied = applyRun(next, result);
+    next = applied.save;
+    reportAchievements(applied.reward.achievements);
     if (result.cleared && result.mode === 'stage') {
       next = { ...next, unlocked: Math.max(next.unlocked, Math.min(CITIES.length, result.cityIndex + 2)) };
     }
@@ -99,7 +110,7 @@ export default function App() {
       }, 2500);
     }
     update(next);
-    setRoute({ name: 'result', result, isBest, at });
+    setRoute({ name: 'result', result, isBest, at, reward: applied.reward });
   };
 
   let screen: React.ReactNode;
@@ -113,11 +124,15 @@ export default function App() {
           onLeaderboard={() => setRoute({ name: 'leaderboard' })}
           onHowTo={() => setRoute({ name: 'howto' })}
           onSettings={() => setRoute({ name: 'settings' })}
+          onShop={() => setRoute({ name: 'shop' })}
+          onAchievements={() => setRoute({ name: 'achievements' })}
+          daily={save.daily}
+          wallet={save.wallet}
         />
       );
       break;
     case 'cities':
-      screen = <CitySelect unlocked={save.unlocked} best={save.best} onPick={(i) => play('stage', i)} onBack={() => setRoute({ name: 'title' })} />;
+      screen = <CitySelect unlocked={save.unlocked} best={save.best} stars={save.stars} onPick={(i) => play('stage', i)} onBack={() => setRoute({ name: 'title' })} />;
       break;
     case 'howto':
       screen = <HowToScreen onBack={() => setRoute({ name: 'title' })} />;
@@ -136,6 +151,24 @@ export default function App() {
     case 'about':
       screen = <AboutScreen onBack={() => setRoute({ name: 'settings' })} />;
       break;
+    case 'shop':
+      screen = (
+        <ShopScreen
+          save={save}
+          onBuy={(suit) => {
+            const next = buySuit(save, suit);
+            if (!next) return false;
+            reportAchievements(next.achievements.filter((a) => !save.achievements.includes(a)));
+            update(next);
+            return true;
+          }}
+          onBack={() => setRoute({ name: 'title' })}
+        />
+      );
+      break;
+    case 'achievements':
+      screen = <AchievementsScreen unlocked={save.achievements} onBack={() => setRoute({ name: 'title' })} />;
+      break;
     case 'leaderboard':
       screen = <LeaderboardScreen local={save.local} initial={route.tab} onBack={() => setRoute({ name: 'title' })} />;
       break;
@@ -146,6 +179,8 @@ export default function App() {
           mode={route.mode}
           cityIndex={route.cityIndex}
           lite={save.settings.graphics === 'low'}
+          coach={!save.coached}
+          suit={suitOf(save.suit)}
           onExit={() => setRoute({ name: 'title' })}
           onFinish={finish}
         />
@@ -159,6 +194,7 @@ export default function App() {
           result={r}
           name={save.name}
           isBest={route.isBest}
+          reward={route.reward}
           onSaveName={(name) => {
             // Remember the name, and put it on this run's entry in the phone's leaderboard too.
             const key = modeKey(r);

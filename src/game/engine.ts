@@ -17,6 +17,20 @@ const MAX_HEALTH = 3;
 const LIFE_EVERY = 25;
 const CHASE_GAP = 12;
 const ENDLESS_CITY_LEN = 900;
+// Bottles picked up close together build a combo: every COMBO_STEP in a row raises the multiplier on bottle
+// points, up to COMBO_MAX. Miss the window or take a hit and it drops back to x1.
+const COMBO_WINDOW = 2.5;
+const COMBO_STEP = 8;
+const COMBO_MAX = 5;
+const CAN_POINTS = 50;
+// Brushing past traffic without touching it is worth a bonus.
+const CLOSE_MARGIN = 0.5;
+const CLOSE_POINTS = 100;
+const DASH_TIME = 0.75;
+const DASH_COOLDOWN = 2.5;
+const MAGNET_TIME = 8;
+const SHIELD_TIME = 12;
+const MAGNET_REACH = 4.5;
 
 export type EntityKind =
   | 'can'
@@ -29,6 +43,8 @@ export type EntityKind =
   | 'checkpoint'
   | 'tajine'
   | 'skate'
+  | 'magnet'
+  | 'shield'
   | 'finish';
 
 export type Entity = {
@@ -45,6 +61,7 @@ export type Entity = {
   homeZ?: number; // where a moving car starts, so a respawn puts it back
   wake?: number; // starts moving when the runner is this close
   done: boolean; // collected / triggered / already hit
+  passed?: boolean; // already gone by the runner (for near misses)
 };
 
 export type GameMode = 'stage' | 'endless';
@@ -63,7 +80,14 @@ export type GameEvent = {
     | 'chase'
     | 'clear'
     | 'over'
-    | 'city';
+    | 'city'
+    | 'combo'
+    | 'close'
+    | 'dash'
+    | 'magnet'
+    | 'shield'
+    | 'shieldBreak';
+  n?: number; // combo multiplier
   x?: number;
   z?: number;
 };
@@ -99,6 +123,19 @@ export type GameState = {
   chaseGap: number;
   stun: number;
   jumpBuffer: number;
+  combo: number; // bottles in the current chain
+  comboTimer: number; // seconds left to grab the next one
+  bonus: number; // points from combo multipliers and near misses
+  closeCalls: number;
+  hits: number; // hits taken this run (for the three-star "no hits" goal)
+  cansTotal: number; // bottles laid out in the stage so far (for the bottles star)
+  maxCombo: number;
+  usedSkate: boolean;
+  powerups: number; // magnets and shields picked up
+  dash: number; // seconds of dash left (swipe up while sliding)
+  dashCool: number;
+  magnet: number; // seconds of bottle magnet left
+  shield: number; // seconds of shield left; it takes one hit
   events: GameEvent[];
   nextId: number;
 };
@@ -166,6 +203,19 @@ export function createGame(mode: GameMode, cityIndex = 0): GameState {
     chaseGap: CHASE_GAP,
     stun: 0,
     jumpBuffer: 0,
+    combo: 0,
+    comboTimer: 0,
+    bonus: 0,
+    closeCalls: 0,
+    hits: 0,
+    cansTotal: 0,
+    maxCombo: 1,
+    usedSkate: false,
+    powerups: 0,
+    dash: 0,
+    dashCool: 0,
+    magnet: 0,
+    shield: 0,
     events: [],
     nextId: 1,
   };
@@ -187,6 +237,7 @@ function add(s: GameState, e: Partial<Entity> & { kind: EntityKind; z: number })
     ...e,
   };
   s.entities.push(base);
+  if (e.kind === 'can') s.cansTotal += 1;
   return base;
 }
 
@@ -242,11 +293,13 @@ function pattern(s: GameState, z: number, inChase: boolean): number {
     return 40;
   }
   if (r < 0.65) {
-    const gap = range(s, -1.2, 1.2);
-    add(s, { kind: 'taxi', z, x: gap - 2.05, w: 0.85, h: 1.4, depth: 3.8 });
-    add(s, { kind: 'taxi', z: z + range(s, 0, 1.5), x: gap + 2.05, w: 0.85, h: 1.4, depth: 3.8 });
-    canLine(s, z - 2, gap, gap, 3);
-    return 10;
+    // Two cars side by side coming at you, with a gap between them to thread.
+    const gap = range(s, -0.9, 0.9);
+    const v = range(s, 5, 7.5) * (0.85 + c.density * 0.4);
+    oncoming(s, z + 34, Math.max(-2.15, gap - 2.05), v);
+    oncoming(s, z + 34 + range(s, 0, 1.5), Math.min(2.15, gap + 2.05), v);
+    canLine(s, z + 2, gap, gap, 3);
+    return 40;
   }
   if (r < 0.72) {
     // Two-way traffic: cars coming at you on both sides, a gap down the middle with bottles in it.
@@ -262,9 +315,11 @@ function pattern(s: GameState, z: number, inChase: boolean): number {
     return 12;
   }
   if (r < 0.88) {
-    const dir = rand(s) < 0.5 ? -1 : 1;
-    add(s, { kind: 'donkey', z, x: -dir * 1.5, vx: dir * 1.1, w: 1.0, h: 1.3, depth: 2 });
-    return 10;
+    // A donkey pulling a fruit cart down one side of the street toward you, plodding.
+    const side = rand(s) < 0.5 ? -1 : 1;
+    add(s, { kind: 'donkey', z: z + 22, homeZ: z + 22, x: side * range(s, 1.3, 2.05), vz: -range(s, 1.8, 2.6), wake: WAKE, w: 0.85, h: 1.7, depth: 3.7 });
+    canLine(s, z + 4, -side * 1.5, -side * 1.5, 4);
+    return 28;
   }
   // Combo: jump then slide.
   add(s, { kind: 'crate', z, x: 0, w: ROAD_HALF, h: 0.9, depth: 0.9 });
@@ -286,8 +341,9 @@ function generate(s: GameState, upTo: number) {
       continue;
     }
     if (z >= s.nextPowerup) {
-      const good = rand(s) < 0.55;
-      add(s, { kind: good ? 'skate' : 'tajine', z, x: laneX(s), y: 0.3, w: 0.5, h: 0.6, depth: 1.2 });
+      const r = rand(s);
+      const kind: EntityKind = r < 0.32 ? 'skate' : r < 0.52 ? 'magnet' : r < 0.72 ? 'shield' : 'tajine';
+      add(s, { kind, z, x: laneX(s), y: 0.3, w: 0.5, h: 0.6, depth: 1.2 });
       s.nextPowerup += range(s, 200, 320);
       s.genZ += 10;
       continue;
@@ -326,6 +382,7 @@ function respawn(s: GameState) {
   s.skate = 0;
   for (const e of s.entities) {
     if (e.homeZ !== undefined) e.z = e.homeZ; // cars drive back to where they waited
+    if (e.z > s.z - 2) e.passed = false;
     if (e.z > s.z - 2 && e.kind !== 'can' && e.kind !== 'cash') e.done = false;
   }
 }
@@ -342,9 +399,21 @@ function loseLife(s: GameState) {
   respawn(s);
 }
 
+export const comboMultiplier = (s: GameState) => Math.min(COMBO_MAX, 1 + Math.floor(s.combo / COMBO_STEP));
+
 function hit(s: GameState, e: Entity) {
   e.done = true;
   if (s.invuln > 0) return;
+  if (s.shield > 0) {
+    // The shield takes the knock and breaks; nothing else is lost.
+    s.shield = 0;
+    s.invuln = 1;
+    s.shake = 0.2;
+    s.events.push({ type: 'shieldBreak', x: e.x, z: e.z });
+    return;
+  }
+  s.hits += 1;
+  s.combo = 0;
   s.events.push({ type: 'hit', x: e.x, z: e.z });
   s.shake = 0.35;
   s.speed *= 0.35;
@@ -364,7 +433,8 @@ export function start(s: GameState) {
   if (s.phase === 'ready') s.phase = 'run';
 }
 
-export function step(s: GameState, dtRaw: number, input: Input) {
+export function step(s: GameState, dtRaw: number, inputRaw: Input) {
+  let input = inputRaw;
   const dt = Math.min(dtRaw, 1 / 30);
   if (s.phase === 'ready' || s.phase === 'over' || s.phase === 'clear') {
     s.runPhase += dt * 2;
@@ -377,13 +447,20 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   s.skate = Math.max(0, s.skate - dt);
   s.shake = Math.max(0, s.shake - dt);
   s.stun = Math.max(0, s.stun - dt);
+  s.comboTimer = Math.max(0, s.comboTimer - dt);
+  s.dash = Math.max(0, s.dash - dt);
+  s.dashCool = Math.max(0, s.dashCool - dt);
+  s.magnet = Math.max(0, s.magnet - dt);
+  s.shield = Math.max(0, s.shield - dt);
+  if (s.comboTimer === 0) s.combo = 0;
 
   // Speed: ramps up through a stage, faster in the chase and on a skateboard.
   const endlessBoost = s.mode === 'endless' ? Math.min(10, s.z / 400) : 0;
   let target = c.baseSpeed + progress(s) * 2.5 + endlessBoost;
   if (s.phase === 'chase') target += 3;
   if (s.skate > 0) target += 5;
-  const accel = s.stun > 0 ? 0 : 9;
+  if (s.dash > 0) target += 8;
+  const accel = s.stun > 0 ? 0 : s.dash > 0 ? 30 : 9;
   s.speed += Math.sign(target - s.speed) * Math.min(Math.abs(target - s.speed), accel * dt);
 
   // Free lateral steering, like the analog stick in the original. The tajine on
@@ -393,6 +470,14 @@ export function step(s: GameState, dtRaw: number, input: Input) {
 
   const grounded = s.y <= 0.0001;
   // A jump pressed a moment before landing is kept and fires on touchdown.
+  // Swipe up while sliding: a low dash forward instead of a jump.
+  if (input.jump && grounded && s.slide > 0 && s.dashCool === 0) {
+    s.dash = DASH_TIME;
+    s.dashCool = DASH_COOLDOWN;
+    s.slide = DASH_TIME;
+    s.events.push({ type: 'dash' });
+    input = { ...input, jump: false };
+  }
   s.jumpBuffer = input.jump ? JUMP_BUFFER : Math.max(0, s.jumpBuffer - dt);
   if (s.jumpBuffer > 0 && grounded) {
     s.vy = JUMP_V;
@@ -400,7 +485,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
     s.jumpBuffer = 0;
   }
   if (input.slide) {
-    if (grounded) s.slide = SLIDE_TIME;
+    if (grounded) s.slide = Math.max(s.slide, SLIDE_TIME);
     else s.vy = Math.min(s.vy, -JUMP_V); // slam down, then slide on landing
   }
   if (!grounded || s.vy > 0) {
@@ -417,6 +502,17 @@ export function step(s: GameState, dtRaw: number, input: Input) {
   s.z += s.speed * dt;
   s.runPhase += dt * (s.speed / 1.6);
 
+  if (s.magnet > 0) {
+    // Bottles and notes ahead drift toward you.
+    for (const e of s.entities) {
+      if (e.done || (e.kind !== 'can' && e.kind !== 'cash')) continue;
+      const d = e.z - s.z;
+      if (d < 0 || d > 14 || Math.abs(e.x - s.x) > MAGNET_REACH) continue;
+      const k = Math.min(1, dt * 8);
+      e.x += (s.x - e.x) * k;
+      e.y += (s.y + 0.6 - e.y) * k;
+    }
+  }
   for (const e of s.entities) {
     if (e.vx) {
       e.x += e.vx * dt;
@@ -426,6 +522,16 @@ export function step(s: GameState, dtRaw: number, input: Input) {
       }
     }
     if (e.vz && (e.wake === undefined || e.z - s.z < e.wake)) e.z += e.vz * dt;
+    // A car, scooter or cart that has just gone by without touching you, by a whisker: a close call.
+    if (!e.done && !e.passed && (e.kind === 'taxi' || e.kind === 'scooter' || e.kind === 'donkey') && e.z + e.depth / 2 < s.z - PLAYER_HALF) {
+      e.passed = true;
+      const gap = Math.abs(e.x - s.x) - e.w - PLAYER_HALF;
+      if (gap < CLOSE_MARGIN && s.invuln === 0) {
+        s.bonus += CLOSE_POINTS;
+        s.closeCalls += 1;
+        s.events.push({ type: 'close', x: e.x, z: e.z });
+      }
+    }
     if (e.done || !overlaps(s, e, z0, s.z)) continue;
     const top = e.y + e.h;
     const vertical = s.y < top && s.y + standHeight(s) > e.y;
@@ -435,7 +541,14 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           e.done = true;
           s.cans += 1;
           s.lifeCans += 1;
+          const before = comboMultiplier(s);
+          s.combo += 1;
+          s.comboTimer = COMBO_WINDOW;
+          const mult = comboMultiplier(s);
+          s.maxCombo = Math.max(s.maxCombo, mult);
+          s.bonus += CAN_POINTS * (mult - 1);
           s.events.push({ type: 'can', x: e.x, z: e.z });
+          if (mult > before) s.events.push({ type: 'combo', n: mult });
           if (s.lifeCans >= LIFE_EVERY) {
             s.lifeCans = 0;
             s.lives = Math.min(9, s.lives + 1);
@@ -460,6 +573,7 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           e.done = true;
           s.skate = 6;
           s.tajine = 0;
+          s.usedSkate = true;
           s.events.push({ type: 'skate' });
         }
         break;
@@ -469,6 +583,16 @@ export function step(s: GameState, dtRaw: number, input: Input) {
           s.tajine = 5;
           s.skate = 0;
           s.events.push({ type: 'tajine' });
+        }
+        break;
+      case 'magnet':
+      case 'shield':
+        if (s.y < 1) {
+          e.done = true;
+          if (e.kind === 'magnet') s.magnet = MAGNET_TIME;
+          else s.shield = SHIELD_TIME;
+          s.powerups += 1;
+          s.events.push({ type: e.kind });
         }
         break;
       case 'finish':
@@ -510,10 +634,18 @@ export function step(s: GameState, dtRaw: number, input: Input) {
 }
 
 export function scoreOf(s: GameState, cleared: boolean) {
-  const base = Math.floor(s.z) + s.cans * 50 + s.cash * 500;
+  const base = Math.floor(s.z) + s.cans * CAN_POINTS + s.cash * 500 + s.bonus;
   return cleared ? base + s.lives * 1000 + s.health * 250 : base;
 }
 
 export function playerHeight(s: GameState) {
   return standHeight(s);
+}
+
+// Stars for a cleared stage: one for clearing it, one for grabbing at least 70% of its bottles, one for
+// taking no hits.
+export const BOTTLE_STAR_SHARE = 0.7;
+export function starsOf(s: GameState) {
+  if (s.phase !== 'clear') return 0;
+  return 1 + (s.cansTotal > 0 && s.cans >= s.cansTotal * BOTTLE_STAR_SHARE ? 1 : 0) + (s.hits === 0 ? 1 : 0);
 }

@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import type { City } from '../cities';
-import { GameState, ROAD_HALF, chaseStart, city as cityOf } from '../engine';
-import { buildHero, HeroRig, poseHero } from './hero';
+import { Entity, GameState, ROAD_HALF, chaseStart, city as cityOf } from '../engine';
+import { buildHero, dressHero, HeroRig, poseHero } from './hero';
+import type { Suit } from '../progression';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
-import { entityObject, flag, giantBottle, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, spectator, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
+import { asphaltTexture, blobTexture, glowTexture, paverTexture } from './surfaces';
+import { entityObject, flatten, flag, giantBottle, policeChaser, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -13,7 +15,8 @@ const MAX_D = 110;
 const DECOR_D = 80;
 const SEG = 3;
 const DECOR_STEP = 7;
-const STRIPS = 6; // ground L/R, curb L/R, road, centre dash
+const ROAD_STRIPS = 4; // curb L/R, road, centre dash
+const GROUND_STRIPS = 2; // pavement L/R
 
 // Pavement decor per city; maples line the streets in the cooler north.
 const DECOR: Record<string, string[]> = {
@@ -21,6 +24,9 @@ const DECOR: Record<string, string[]> = {
   marrakech: ['palm', 'stall', 'lamp', 'spice', 'flag', 'stall'],
   fes: ['maple', 'lamp', 'stall', 'spice', 'flag'],
   tangier: ['maple', 'lamp', 'palm', 'flag'],
+  rabat: ['palm', 'lamp', 'lamp', 'flag'],
+  agadir: ['palm', 'palm', 'lamp', 'flag'],
+  chefchaouen: ['maple', 'lamp', 'flag', 'lamp'],
 };
 
 const curvature = (z: number) => 0.0028 * Math.sin(z / 150 + 1.3) + 0.0013 * Math.sin(z / 61);
@@ -54,23 +60,27 @@ export class GameRenderer {
   camera: THREE.PerspectiveCamera;
   hero: HeroRig;
   shadow: THREE.Mesh;
-  road: THREE.Mesh;
-  roadPos: Float32Array;
-  roadCol: Float32Array;
+  road: THREE.Mesh; // asphalt, kerbs and markings
+  ground: THREE.Mesh; // paved pavements out to the houses and beyond
+  blobMat: THREE.MeshBasicMaterial; // soft contact shadows under cars, carts and crates
   sky: THREE.Mesh;
   skyline = new THREE.Group();
   sea: THREE.Mesh;
   hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
   giant: THREE.Group;
+  police: THREE.Group;
+  bubble: THREE.Mesh; // the shield, a faint green bubble round the hero
+  private dustAt = 0;
   pool = new Map<string, Pooled>();
   particles: Particle[] = [];
   spriteMats = new Map<string, THREE.SpriteMaterial>();
   lastTime = 0;
   frame = 0;
   cityId = '';
-  camDist = 6.2;
-  camHeight = 3.2;
+  camDist = 5.2;
+  camHeight = 3.9;
+  fovKick = 0; // degrees added to the field of view at speed (skateboard, chase)
   onFrameEnd?: () => void;
   debugCamera?: { pos: [number, number, number]; look: [number, number, number] }; // for automated playtests
   heroX = 0; // last frame's hero position and lean, for leaning into turns
@@ -127,20 +137,25 @@ export class GameRenderer {
     this.sea.position.set(0, -0.05, -300);
     this.scene.add(this.sea, this.skyline);
 
-    // Road + ground ribbon, rebuilt every frame (STRIPS quads per segment, 6 verts per quad).
+    // Road and pavement ribbons, rebuilt every frame (6 verts per quad), each with its own tiling texture.
     const segs = Math.ceil(MAX_D / SEG) + 2;
-    this.roadPos = new Float32Array(segs * STRIPS * 6 * 3);
-    this.roadCol = new Float32Array(segs * STRIPS * 6 * 3);
-    const roadGeo = new THREE.BufferGeometry();
-    roadGeo.setAttribute('position', new THREE.BufferAttribute(this.roadPos, 3));
-    roadGeo.setAttribute('color', new THREE.BufferAttribute(this.roadCol, 3));
-    this.road = new THREE.Mesh(roadGeo, new THREE.MeshBasicMaterial({ vertexColors: true }));
-    this.road.frustumCulled = false;
-    this.scene.add(this.road);
+    const ribbon = (strips: number, map: THREE.Texture) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs * strips * 18), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(segs * strips * 18), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(segs * strips * 12), 2));
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, map }));
+      m.frustumCulled = false;
+      this.scene.add(m);
+      return m;
+    };
+    this.ground = ribbon(GROUND_STRIPS, paverTexture());
+    this.road = ribbon(ROAD_STRIPS, asphaltTexture());
 
-    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }));
+    this.blobMat = new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, opacity: 0.5, depthWrite: false });
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), this.blobMat);
     this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.y = 0.02;
+    this.shadow.position.y = 0.04;
     this.scene.add(this.shadow);
 
     this.hero = buildHero();
@@ -149,6 +164,19 @@ export class GameRenderer {
     this.giant = giantBottle();
     this.giant.visible = false;
     this.scene.add(this.giant);
+    this.bubble = new THREE.Mesh(
+      new THREE.SphereGeometry(1.05, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x7dffc0, transparent: true, opacity: 0.22, depthWrite: false }),
+    );
+    this.bubble.visible = false;
+    this.scene.add(this.bubble);
+    this.police = policeChaser();
+    this.police.visible = false;
+    this.scene.add(this.police);
+  }
+
+  dress(suit: Suit) {
+    dressHero(this.hero, suit);
   }
 
   burst(kind: BurstKind, x: number, y: number, z: number) {
@@ -203,11 +231,13 @@ export class GameRenderer {
   }
 
   fitCamera(aspect: number) {
-    // Keep about 5.6 m of street visible across at the hero, whatever the phone shape.
-    const halfWidth = 2.9;
+    // Keep about 4.9 m of street visible across at the hero on wide phones; tall ones cap the field of view
+    // and see a little less, rather than a sliver of street between a lot of sky and a lot of road. The camera
+    // follows the hero sideways, so the kerbs come into view as he steers toward them.
+    const halfWidth = 2.45;
     const hfov = 2 * Math.atan(halfWidth / this.camDist);
     const vfov = 2 * Math.atan(Math.tan(hfov / 2) / aspect);
-    this.camera.fov = Math.min(95, Math.max(50, THREE.MathUtils.radToDeg(vfov)));
+    this.camera.fov = Math.min(78, Math.max(50, THREE.MathUtils.radToDeg(vfov))) + this.fovKick;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
   }
@@ -230,6 +260,9 @@ export class GameRenderer {
     this.hemi.color = color(c.skyBottom).lerp(new THREE.Color(0xffffff), 0.5);
     this.hemi.groundColor = color(c.ground[1]);
     this.sun.color = color(c.sun);
+    // Night: the street lit by its lamps under a dark sky.
+    this.hemi.intensity = c.night ? 0.75 : 1.6;
+    this.sun.intensity = c.night ? 0.55 : 1.6;
     this.sea.visible = !!c.sea;
     if (c.sea) (this.sea.material as THREE.MeshBasicMaterial).color = color(c.sea);
 
@@ -240,15 +273,24 @@ export class GameRenderer {
       const w = 10 + r * 16;
       const h = 8 + hash(c.seed * 200 + i) * 22;
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 10), mat(i % 2 ? c.far : '#' + shadeHex(c.far, -8).toString(16).padStart(6, '0')));
-      b.position.set(-300 + i * 15 + r * 6, h / 2, -150 - hash(i + 7) * 30);
+      b.position.set(-300 + i * 15 + r * 6, h / 2, -225 - hash(i + 7) * 30); // behind the landmarks
       this.skyline.add(b);
     }
     c.landmarks.forEach((lm, j) => {
       const l = landmark(lm, c);
+      if (lm !== 'mosque' && lm !== 'mountain') l.scale.setScalar(1.4); // further back than before, so a little bigger
+      // A gate is low and wide: as a city's signature it stands bigger and dead ahead, over the rooftops.
+      if (lm === 'bab' && j === 0) l.scale.setScalar(2.4);
       // The first landmark is the city's signature one, so it stands straight ahead.
-      l.position.set([0, -80, 80, -160][j % 4] + hash(c.seed + j) * 20, 0, -135 - (j % 2) * 15);
+      // Far enough back that even the tallest (the Hassan II minaret) fits under the HUD with the camera
+      // looking down the street.
+      l.position.set([-4, -85, 85, -160][j % 4] + (lm === 'bab' && j === 0 ? 4 : hash(c.seed + j) * (j ? 20 : 8)), 0, -195 - (j % 2) * 15);
       this.skyline.add(l);
     });
+    // One draw call for all the far blocks instead of forty.
+    const merged = flatten(this.skyline);
+    this.skyline.clear();
+    this.skyline.add(...merged.children);
     // The skyline sits beyond the fog; it is already painted in hazy colours, so let it ignore fog.
     const noFog = new Map<THREE.Material, THREE.Material>();
     this.skyline.traverse((o) => {
@@ -267,6 +309,38 @@ export class GameRenderer {
     // City change: drop pooled props so they are rebuilt in the new colours.
     for (const [, p] of this.pool) this.scene.remove(p.obj);
     this.pool.clear();
+  }
+
+  // Grounds cars, carts and crates with a soft contact shadow, so they no longer seem to float on the road.
+  private blobGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  private withShadow(o: THREE.Object3D, e: Entity) {
+    const sized: Partial<Record<Entity['kind'], [number, number]>> = {
+      taxi: [e.w * 2.5, e.depth * 1.15],
+      scooter: [0.9, 1.7],
+      donkey: [e.w * 2.3, e.depth * 1.1],
+      crate: [e.w * 2.1, e.depth * 1.8],
+    };
+    const size = sized[e.kind];
+    if (!size || this.lite) return o;
+    const b = new THREE.Mesh(this.blobGeo, this.blobMat);
+    b.scale.set(size[0], 1, size[1]);
+    b.position.y = 0.035;
+    b.renderOrder = -1;
+    o.add(b);
+    return o;
+  }
+
+  // At night each street lamp gets a warm halo round its lantern.
+  private glowMat?: THREE.SpriteMaterial;
+  private litLamp(c: City) {
+    const l = lamp();
+    if (!c.night) return l;
+    this.glowMat ??= new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffc46b, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
+    const halo = new THREE.Sprite(this.glowMat);
+    halo.position.set(-1.2, 4.2, 0);
+    halo.scale.setScalar(2.4);
+    l.add(halo);
+    return l;
   }
 
   private use(key: string, make: () => THREE.Object3D) {
@@ -294,18 +368,23 @@ export class GameRenderer {
     };
     const t = s.time;
 
-    // Camera: behind and above, following the hero sideways a little. Pulls back in the chase.
+    // Camera: behind and above, looking down the street so the hero runs in the lower third and the road ahead
+    // fills the screen. Follows the hero sideways and a little up on jumps. Pulls back in the chase.
     const chase = s.phase === 'chase';
-    const targetDist = chase ? 9 : 6.2;
+    const targetDist = chase ? 8.4 : 5.2;
     // As the giant bottle closes in, lift the camera so you can still see over it.
-    const targetHeight = chase ? 4.8 + (1 - s.chaseGap / 12) * 2.4 : 3.2;
+    const targetHeight = chase ? 4.9 + (1 - s.chaseGap / 12) * 2.2 : 3.9;
     this.camDist += (targetDist - this.camDist) * 0.05;
     this.camHeight += (targetHeight - this.camHeight) * 0.05;
-    const camX = s.x * 0.55;
-    const shakeX = s.shake > 0 ? Math.sin(t * 90) * s.shake * 0.25 : 0;
-    const shakeY = s.shake > 0 ? Math.cos(t * 70) * s.shake * 0.15 : 0;
-    this.camera.position.set(camX + shakeX, this.camHeight + shakeY, this.camDist);
-    this.camera.lookAt(camX * 0.6 + bend(14) * 0.5, 0.9, -14);
+    // A wider view at speed sells the rush of the skateboard and the chase.
+    this.fovKick += ((s.skate > 0 ? 7 : 0) + (chase ? 3 : 0) - this.fovKick) * 0.06;
+    const camX = s.x * 0.6;
+    // In the chase the ground rumbles, harder as the chaser closes in.
+    const rumble = chase ? 0.04 + Math.max(0, 1 - s.chaseGap / 12) * 0.12 : 0;
+    const shakeX = (s.shake > 0 ? Math.sin(t * 90) * s.shake * 0.25 : 0) + Math.sin(t * 53) * rumble;
+    const shakeY = (s.shake > 0 ? Math.cos(t * 70) * s.shake * 0.15 : 0) + Math.cos(t * 61) * rumble * 0.7;
+    this.camera.position.set(camX + shakeX, this.camHeight + s.y * 0.3 + shakeY, this.camDist);
+    this.camera.lookAt(camX * 0.6 + bend(12) * 0.5, s.y * 0.2, -10);
     this.fitCamera(this.camera.aspect);
     if (this.debugCamera) {
       this.camera.position.set(...this.debugCamera.pos);
@@ -314,7 +393,8 @@ export class GameRenderer {
 
     // Sky and skyline turn with the street.
     this.sky.position.set(this.camera.position.x, 0, this.camera.position.z);
-    this.skyline.position.x = -curveIntegral(s.z) * 120 - camX * 0.3;
+    // Gently, so the city's landmark stays in view down the street as the road bends.
+    this.skyline.position.x = -curveIntegral(s.z) * 45 - camX * 0.3;
     this.skyline.position.z = this.camera.position.z;
 
     this.buildRoad(s, c, bend);
@@ -335,6 +415,11 @@ export class GameRenderer {
       skating: s.skate > 0,
       tajine: s.tajine > 0,
     });
+    this.bubble.visible = s.shield > 0 && (s.shield > 2 || Math.floor(t * 8) % 2 === 0); // blinks as it runs out
+    if (this.bubble.visible) {
+      this.bubble.position.set(s.x, s.y + (s.slide > 0 ? 0.55 : 0.95), 0);
+      this.bubble.scale.setScalar(1 + Math.sin(t * 6) * 0.04);
+    }
     this.hero.root.visible = !(s.invuln > 0 && Math.floor(s.time * 12) % 2 === 0);
     this.shadow.position.x = s.x;
     this.shadow.scale.setScalar(Math.max(0.4, 1 - s.y * 0.25));
@@ -343,11 +428,12 @@ export class GameRenderer {
     for (const e of s.entities) {
       const d = e.z - s.z;
       if (d < -camBack || d > MAX_D) continue;
-      if (e.done && (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine')) continue;
-      const o = this.use(`e${e.id}`, () => entityObject(e, c));
-      o.position.set(e.x + bend(d), e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
-      if (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate') o.rotation.y = t * 3 + e.id;
-      if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? -0.5 : 0.5;
+      const pickup = e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'tajine' || e.kind === 'magnet' || e.kind === 'shield';
+      if (e.done && pickup) continue;
+      const o = this.use(`e${e.id}`, () => this.withShadow(entityObject(e, c), e));
+      o.position.set(e.x + bend(d), pickup ? e.y + Math.sin(t * 4 + e.id) * 0.08 : 0, -d);
+      if (pickup && e.kind !== 'tajine') o.rotation.y = t * 3 + e.id;
+      if (e.kind === 'scooter') o.rotation.y = e.vx > 0 ? 1.1 : -1.1; // the moped heads across the street, a little toward you
       if (e.kind === 'taxi') {
         // Police lights flash in turn; moving cars rock a little on their springs.
         const on = Math.floor(t * 6 + e.id) % 2 === 0;
@@ -360,7 +446,7 @@ export class GameRenderer {
         if (e.vz) o.position.y = Math.sin(t * 13 + e.id) * 0.015;
       }
       if (e.kind === 'donkey') {
-        o.rotation.y = e.vx > 0 ? -0.25 : 0.25;
+        o.rotation.y = 0; // plods toward you
         const dk = o.getObjectByName('donkey');
         if (dk) animate(dk, ((t + e.id * 0.3) / DONKEY_CYCLE.seconds) * DONKEY_CYCLE.poses); // plodding
       }
@@ -374,6 +460,12 @@ export class GameRenderer {
     // Roadside scenery.
     for (let i = Math.floor((s.z - camBack) / DECOR_STEP); i * DECOR_STEP < s.z + DECOR_D; i++) {
       const d = i * DECOR_STEP - s.z;
+      // A zebra crossing every so often (never under the chase's danger signs), and manhole covers.
+      if (i % 17 === 5) this.use(`zb${i}`, () => zebra(c)).position.set(bend(d), 0, -d);
+      else if (hash(i * 11 + 5) < 0.18) {
+        const x = (hash(i * 19) - 0.5) * 3.6;
+        this.use(`mh${i}`, manhole).position.set(x + bend(d), 0, -d);
+      }
       for (const side of [-1, 1]) {
         const r = hash(i * 2 + (side > 0 ? 1 : 0));
         const r2 = hash(i * 7 + (side > 0 ? 3 : 5));
@@ -398,14 +490,20 @@ export class GameRenderer {
           const h = this.use(`h${i}${side}`, () => house(c, variant, side));
           h.position.set(side * (ROAD_HALF + 5.4) + bend(d), 0, -d);
         }
-        // Now and then a kid cheers you on from the pavement.
-        if (r2 > 0.78 && clear) {
-          const b = this.use(`b${i}${side}`, () => spectator(side));
-          b.position.set(side * (ROAD_HALF + 0.95) + bend(d - 3), 0, -(d - 3));
-          b.getObjectByName('bob')!.position.y = Math.abs(Math.sin(t * 7 + i * 1.7)) * 0.25;
-        }
+        // People going about their day on the pavement, some coming toward you, some walking the same way.
+        // Each sets off from where he was when he came into view.
+        const walker = (key: string, make: () => THREE.Object3D, cycle: { poses: number; seconds: number; speed: number }, lane: number, dz: number) => {
+          const dir = hash(i * 31 + (side > 0 ? 7 : 3) + key.length) < 0.6 ? 1 : -1;
+          const o = this.use(key, () => Object.assign(make(), { userData: { born: t } }));
+          const walked = t - o.userData.born;
+          const dd = d + dz - dir * walked * cycle.speed;
+          o.position.set(side * (ROAD_HALF + lane) + bend(dd), 0, -dd);
+          o.rotation.y = dir > 0 ? 0 : Math.PI;
+          animate(o, (walked / cycle.seconds) * cycle.poses);
+        };
+        if (r2 > 0.8 && clear) walker(`k${i}${side}`, walkingKid, KID_CYCLE, 1.0 + hash(i * 5 + 1) * 0.6, -3);
         const p = this.use(`d${i}${side}`, () =>
-          kind === 'palm' ? palm() : kind === 'lamp' ? lamp() : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : kind === 'spice' ? spiceMarket() : flag(),
+          kind === 'palm' ? palm() : kind === 'lamp' ? this.litLamp(c) : kind === 'maple' ? maple() : kind === 'stall' ? fruitStall(side) : kind === 'spice' ? spiceMarket() : flag(),
         );
         p.position.set(side * (ROAD_HALF + (kind === 'stall' ? 1.9 : kind === 'spice' ? 2.1 : 1.3)) + bend(d), 0, -d);
         if (kind === 'flag') p.rotation.y = side > 0 ? Math.PI : 0;
@@ -429,14 +527,7 @@ export class GameRenderer {
           const ds = this.use(`ds${i}${side}`, () => dangerSign(side));
           ds.position.set(side * (ROAD_HALF + 0.75) + bend(d + 1), 0, -(d + 1));
         }
-        // An old man strolls toward you, from where he was when he came into view.
-        if (r3 > 0.07 && r3 < 0.15 && !this.lite) {
-          const om = this.use(`om${i}${side}`, () => Object.assign(oldMan(), { userData: { born: t } }));
-          const walked = t - om.userData.born;
-          const dd = d + 1 - walked * OLD_MAN_CYCLE.speed;
-          om.position.set(side * (ROAD_HALF + 0.8) + bend(dd), 0, -dd);
-          animate(om, (walked / OLD_MAN_CYCLE.seconds) * OLD_MAN_CYCLE.poses);
-        }
+        if (r3 > 0.07 && r3 < 0.15 && !this.lite) walker(`om${i}${side}`, oldMan, OLD_MAN_CYCLE, 0.8 + hash(i * 3 + 2) * 0.5, 1);
         // Now and then a cat pads along the foot of the houses.
         if (r3 > 0.25 && r3 < 0.32 && clear) {
           const ct = this.use(`ct${i}${side}`, () => {
@@ -469,12 +560,28 @@ export class GameRenderer {
 
     this.updateParticles(s, bend);
 
-    // The giant Charba rolling after you.
-    this.giant.visible = chase;
+    // The chaser: the giant Charba rolling after you, or in Marrakech a police van, kicking up dust.
+    const police = c.chaser === 'police';
+    this.giant.visible = chase && !police;
+    this.police.visible = chase && police;
     if (chase) {
-      const gap = 2.4 + s.chaseGap * 0.25;
-      this.giant.position.set(0, this.giant.userData.radius, gap);
-      this.giant.getObjectByName('spin')!.rotation.x = -t * 8;
+      // Close enough behind that it looms at the bottom of the screen, nearer as the gap closes.
+      const gap = police ? 4.4 + s.chaseGap * 0.2 : 1.3 + this.giant.userData.radius + s.chaseGap * 0.2;
+      if (police) {
+        this.police.position.set(Math.sin(t * 1.3) * 0.4, Math.sin(t * 17) * 0.02, gap);
+        this.police.rotation.y = Math.sin(t * 1.3 + 0.6) * 0.06;
+        const on = Math.floor(t * 7) % 2 === 0;
+        this.police.getObjectByName('sirenR')!.visible = on;
+        this.police.getObjectByName('sirenB')!.visible = !on;
+      } else {
+        this.giant.position.set(0, this.giant.userData.radius, gap);
+        this.giant.getObjectByName('spin')!.rotation.x = -t * 8;
+      }
+      if (t - this.dustAt > (this.lite ? 0.25 : 0.1)) {
+        this.dustAt = t;
+        const x = (Math.random() * 2 - 1) * (police ? 1.2 : 2.6);
+        this.burst('land', s.x + x, 0.1, s.z - gap + 0.8);
+      }
     }
 
     // Drop pooled objects not used this frame (behind us or no longer needed).
@@ -497,28 +604,44 @@ export class GameRenderer {
   }
 
   private buildRoad(s: GameState, c: City, bend: (d: number) => number) {
-    const pos = this.roadPos;
-    const col = this.roadCol;
-    let v = 0;
-    const ground = [color(c.ground[0]), color(c.ground[1])];
+    const ground = [color(c.ground[0])];
     const road = [color(c.road[0]), color(c.road[1])];
     const curb = [color(c.curb[0]), color(c.curb[1])];
     const line = color(c.line);
     const first = Math.floor((s.z - this.camDist - 2) / SEG);
-    const segs = this.roadPos.length / (STRIPS * 6 * 3);
     const CURB = 0.45;
     const GROUND = 40;
-    const quad = (x0a: number, x1a: number, za: number, x0b: number, x1b: number, zb: number, cl: THREE.Color, y = 0) => {
-      const p = [x0a, y, za, x1a, y, za, x1b, y, zb, x0a, y, za, x1b, y, zb, x0b, y, zb];
-      for (let i = 0; i < 18; i++) pos[v * 3 + i] = p[i];
-      for (let i = 0; i < 6; i++) {
-        col[(v + i) * 3] = cl.r;
-        col[(v + i) * 3 + 1] = cl.g;
-        col[(v + i) * 3 + 2] = cl.b;
-      }
-      v += 6;
+    // Writes quads into one ribbon. UVs follow the street (unbent x, absolute z) so the texture stays put on
+    // the ground as you run over it; `scale` is metres per texture tile.
+    const writer = (mesh: THREE.Mesh, su: number, sv: number) => {
+      const g = mesh.geometry;
+      const pos = g.attributes.position.array as Float32Array;
+      const col = g.attributes.color.array as Float32Array;
+      const uv = g.attributes.uv.array as Float32Array;
+      let v = 0;
+      const quad = (x0: number, x1: number, ba: number, bb: number, za: number, zb: number, wa: number, wb: number, cl: THREE.Color, y = 0) => {
+        const p = [x0 + ba, y, za, x1 + ba, y, za, x1 + bb, y, zb, x0 + ba, y, za, x1 + bb, y, zb, x0 + bb, y, zb];
+        const t = [x0 / su, wa / sv, x1 / su, wa / sv, x1 / su, wb / sv, x0 / su, wa / sv, x1 / su, wb / sv, x0 / su, wb / sv];
+        pos.set(p, v * 3);
+        uv.set(t, v * 2);
+        for (let i = 0; i < 6; i++) {
+          col[(v + i) * 3] = cl.r;
+          col[(v + i) * 3 + 1] = cl.g;
+          col[(v + i) * 3 + 2] = cl.b;
+        }
+        v += 6;
+      };
+      const done = () => {
+        g.attributes.position.needsUpdate = true;
+        g.attributes.color.needsUpdate = true;
+        g.attributes.uv.needsUpdate = true;
+      };
+      return { quad, done, segs: pos.length / 18 / (mesh === this.road ? ROAD_STRIPS : GROUND_STRIPS) };
     };
-    for (let n = 0; n < segs; n++) {
+    const gw = writer(this.ground, 1, 1);
+    // Asphalt tiles span the road (6 m) so the tyre tracks line up with the lanes.
+    const rw = writer(this.road, ROAD_HALF * 2, ROAD_HALF * 2);
+    for (let n = 0; n < gw.segs; n++) {
       const i = first + n;
       const da = i * SEG - s.z;
       const db = da + SEG;
@@ -526,17 +649,19 @@ export class GameRenderer {
       const bb = bend(db);
       const za = -da;
       const zb = -db;
+      const wa = i * SEG;
+      const wb = wa + SEG;
       const alt = ((i % 2) + 2) % 2;
-      quad(-GROUND + ba, -ROAD_HALF - CURB + ba, za, -GROUND + bb, -ROAD_HALF - CURB + bb, zb, ground[alt]);
-      quad(ROAD_HALF + CURB + ba, GROUND + ba, za, ROAD_HALF + CURB + bb, GROUND + bb, zb, ground[alt]);
-      quad(-ROAD_HALF - CURB + ba, -ROAD_HALF + ba, za, -ROAD_HALF - CURB + bb, -ROAD_HALF + bb, zb, curb[alt], 0.03);
-      quad(ROAD_HALF + ba, ROAD_HALF + CURB + ba, za, ROAD_HALF + bb, ROAD_HALF + CURB + bb, zb, curb[alt], 0.03);
-      quad(-ROAD_HALF + ba, ROAD_HALF + ba, za, -ROAD_HALF + bb, ROAD_HALF + bb, zb, road[alt]);
+      gw.quad(-GROUND, -ROAD_HALF - CURB, ba, bb, za, zb, wa, wb, ground[0]);
+      gw.quad(ROAD_HALF + CURB, GROUND, ba, bb, za, zb, wa, wb, ground[0]);
+      rw.quad(-ROAD_HALF - CURB, -ROAD_HALF, ba, bb, za, zb, wa, wb, curb[alt], 0.03);
+      rw.quad(ROAD_HALF, ROAD_HALF + CURB, ba, bb, za, zb, wa, wb, curb[alt], 0.03);
+      rw.quad(-ROAD_HALF, ROAD_HALF, ba, bb, za, zb, wa, wb, road[alt]);
       // centre dash on every other segment (a zero-width quad otherwise)
       const dw = alt ? 0.08 : 0;
-      quad(-dw + ba, dw + ba, za - 0.4, -dw + bb, dw + bb, zb + 0.4, line, 0.02);
+      rw.quad(-dw, dw, ba, bb, za - 0.4, zb + 0.4, wa, wb, line, 0.02);
     }
-    this.road.geometry.attributes.position.needsUpdate = true;
-    this.road.geometry.attributes.color.needsUpdate = true;
+    gw.done();
+    rw.done();
   }
 }

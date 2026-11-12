@@ -2,7 +2,7 @@
   "expo": {
     "name": "Charbaman",
     "slug": "charbaman",
-    "description": "Run through Casablanca, Safi, Marrakech, Fes and Tangier collecting Charba bottles, then outrun the giant rolling bottle.",
+    "description": "Run through eight Moroccan cities from Casablanca to Tangier collecting Charba bottles, then outrun the giant rolling bottle.",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

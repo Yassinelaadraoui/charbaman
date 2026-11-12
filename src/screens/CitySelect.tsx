@@ -6,9 +6,9 @@ import { BackButton, Screen } from '../components/ui';
 import { colors } from '../theme';
 import { cityName, cityTagline, fmt, lang, t } from '../i18n';
 
-type Props = { unlocked: number; best: Record<string, number>; onPick: (i: number) => void; onBack: () => void };
+type Props = { unlocked: number; best: Record<string, number>; stars: Record<string, number>; onPick: (i: number) => void; onBack: () => void };
 
-export function CitySelect({ unlocked, best, onPick, onBack }: Props) {
+export function CitySelect({ unlocked, best, stars, onPick, onBack }: Props) {
   const anims = useRef(CITIES.map(() => new Animated.Value(0))).current;
   useEffect(() => {
     Animated.stagger(90, anims.map((a) => Animated.spring(a, { toValue: 1, useNativeDriver: true, friction: 7 }))).start();
@@ -20,6 +20,7 @@ export function CitySelect({ unlocked, best, onPick, onBack }: Props) {
         <BackButton onPress={onBack} />
         <Text style={styles.title}>{t('chooseCity')}</Text>
         <Text style={styles.subtitle}>{t('chooseCityHint')}</Text>
+        <Text style={styles.starsHint}>{t('stars.hint')}</Text>
         <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 30 }}>
           {CITIES.map((c, i) => {
             const locked = i >= unlocked;
@@ -41,6 +42,11 @@ export function CitySelect({ unlocked, best, onPick, onBack }: Props) {
                       <Text style={styles.tagline}>{locked ? t('locked') : cityTagline(c)}</Text>
                     </View>
                     {!!best[c.id] && <Text style={styles.best}>{t('best', { n: fmt(best[c.id]) })}</Text>}
+                    {!locked && (
+                      <Text style={styles.stars} accessibilityLabel={`${stars[c.id] ?? 0} / 3`}>
+                        {[0, 1, 2].map((k) => (k < (stars[c.id] ?? 0) ? '★' : '☆')).join('')}
+                      </Text>
+                    )}
                   </LinearGradient>
                 </Pressable>
               </Animated.View>
@@ -65,5 +71,7 @@ const styles = StyleSheet.create({
   cityName: { color: colors.white, fontWeight: '900', fontSize: 30, ...shadow },
   arabic: { color: colors.white, fontWeight: '700', fontSize: 16, ...shadow },
   tagline: { color: colors.white, fontWeight: '700', fontSize: 13, marginTop: 4, maxWidth: '60%', ...shadow },
+  starsHint: { color: colors.gold, fontSize: 12, fontWeight: '800', marginTop: -8, marginBottom: 14 },
+  stars: { position: 'absolute', right: 12, top: 40, color: colors.gold, fontSize: 22, fontWeight: '900', ...shadow },
   best: { position: 'absolute', right: 10, top: 10, color: colors.ink, backgroundColor: colors.gold, fontWeight: '900', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
 });
