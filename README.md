@@ -61,19 +61,18 @@ keeps working and the leaderboard shows scores saved on the phone.
 
 ## 3D hero model
 
-The hero is a rigged, skinned low-poly runner (`src/game/three/heroRigged.ts`) wearing the orange Charbaman suit.
-Plain running plays the model's own 20-frame run loop. Jumps, slides and the skateboard are posed in code in
-`src/game/three/hero.ts`, which rotates the bones every frame, and the two blend into each other.
+Charbaman is built from three.js primitives in `src/game/three/hero.ts`: a chunky cartoon runner in a tracksuit
+with white stripes, a red fez with a swinging tassel, sport shades and a moustache, white gloves and sneakers,
+a khatam (eight-point star) on the chest and a cape with a gold hem that streams back with speed. Each limb is
+one merged, vertex-coloured mesh on a joint (about twenty draw calls, toon shading, nothing to decode at load).
+Suits recolour the vertex colours (`dressHero`). Running, jumping, landing, sliding and skating are posed in
+code and blend into each other; the cape and tassel are simulated every frame.
 
-`scripts/reskin-hero.py` builds the module from a rigged body in a T-pose and its running clip, and paints the
-original suit on it (orange, a dark visor, a white chest badge with a bottle, silver stripes and belt, white
-gloves and boots):
+## Backdrop
 
-```bash
-python3 scripts/reskin-hero.py body.glb run.glb src/game/three/heroRigged.ts --credit "..."
-```
-
-With a different skeleton, check the bone names in `BONE_OF` in `hero.ts`.
+`src/game/three/backdrop.ts` builds each city's far background: two hazy rows of medina rooftops (parapets,
+domes, little minarets, water tanks), far hills for inland cities, the sun or the moon and stars, and drifting
+clouds, merged into a few draw calls.
 
 ## Animated props
 
@@ -103,7 +102,7 @@ darbuka maqsum rhythm, with Gnawa qraqeb in the run theme. They are original, so
 
 - Hero: "Casual LowPoly Male Rig T-pose" and "Male Running (20 frames loop)" by Denys Almaral
   (https://sketchfab.com/denysalmaral), Sketchfab Standard licence (fine inside the game, not to be shared as
-  separate model files). The suit is painted by `scripts/reskin-hero.py`.
+  separate model files). The hero is built in code (`src/game/three/hero.ts`).
 
 - Taxi: "Hong Kong Taxi" (https://sketchfab.com/3d-models/hong-kong-taxi-b4e5ecc01a6e41e9a383302e728c8535)
   by Goedude (https://sketchfab.com/Goedude), licensed under CC-BY-4.0. Decimated and recoloured per city

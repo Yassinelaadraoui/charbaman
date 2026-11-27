@@ -629,7 +629,110 @@ export function entityObject(e: Entity, c: City): THREE.Object3D {
       return flat('magnet', build_magnetPickup);
     case 'shield':
       return flat('shield', build_shieldPickup);
+    case 'melon':
+      return melon();
+    case 'hole':
+      return e.w > 1 ? flat(`trench|${e.w}|${e.depth}`, () => build_trench(e)) : flat('manhole-open', build_openManhole);
+    case 'ramp':
+      return flat('ramp', build_ramp);
   }
+}
+
+// A watermelon, striped dark and light green, rolling: the stripes run round the long axis so the roll shows.
+let melonGeo: THREE.BufferGeometry | undefined;
+let melonMat: THREE.Material | undefined;
+function melon() {
+  if (!melonGeo) {
+    const g = new THREE.SphereGeometry(0.3, 14, 10).toNonIndexed();
+    g.scale(0.85, 0.92, 1.15);
+    g.rotateZ(Math.PI / 2); // long axis across the street, so it rolls end over end toward you
+    const pos = g.attributes.position;
+    const col = new Float32Array(pos.count * 3);
+    const dark = new THREE.Color(0x1e5a22);
+    const light = new THREE.Color(0x5fa83a);
+    for (let i = 0; i < pos.count; i += 3) {
+      // One colour per triangle, from the angle of its centre around the long (x) axis.
+      const y = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
+      const z = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
+      const c = Math.sin(Math.atan2(z, y) * 7) > 0.2 ? dark : light;
+      for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (i + k) * 3);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    melonGeo = g;
+    melonMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  }
+  const o = new THREE.Group();
+  const roll = new THREE.Mesh(melonGeo, melonMat);
+  roll.name = 'roll';
+  roll.position.y = 0.28;
+  o.add(roll);
+  return o;
+}
+
+// Roadworks right across the street: a dark trench with dirt heaped along both lips, red and white barriers on
+// the kerbs and a couple of cones.
+function build_trench(e: Entity) {
+  const g = new THREE.Group();
+  const w = e.w * 2;
+  const d = e.depth;
+  g.add(box(w, 0.02, d, 0x15100c, 0, 0.025, 0));
+  g.add(box(w, 0.02, d * 0.55, 0x0a0806, 0, 0.03, 0));
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i < 6; i++) {
+      const lump = box(w / 6 + 0.1, 0.12 + (i % 3) * 0.04, 0.35, i % 2 ? 0x8b6a4a : 0x7a5a3c, -w / 2 + (i + 0.5) * (w / 6), 0.06, sz * (d / 2 + 0.12));
+      lump.rotation.y = (i % 2 ? 0.05 : -0.05) * sz;
+      g.add(lump);
+    }
+  }
+  for (const sx of [-1, 1]) {
+    // A striped barrier on each kerb.
+    for (let k = 0; k < 4; k++) g.add(box(0.22, 0.22, 0.12, k % 2 ? 0xffffff : 0xd62828, sx * (e.w + 0.3), 0.85, -0.33 + k * 0.22));
+    g.add(box(0.06, 0.85, 0.06, 0x444444, sx * (e.w + 0.3), 0.42, -0.4));
+    g.add(box(0.06, 0.85, 0.06, 0x444444, sx * (e.w + 0.3), 0.42, 0.4));
+    // A cone at the lip.
+    g.add(cyl(0.02, 0.14, 0.42, 8, ORANGE, sx * (e.w - 0.25), 0.21, d / 2 + 0.45));
+    g.add(cyl(0.075, 0.1, 0.07, 8, WHITE, sx * (e.w - 0.25), 0.24, d / 2 + 0.45));
+  }
+  return g;
+}
+
+// An open manhole: the dark hole and its cover lying askew beside it, with a cone to warn you.
+function build_openManhole() {
+  const g = new THREE.Group();
+  g.add(cyl(0.52, 0.52, 0.02, 16, 0x0a0806, 0, 0.03, 0));
+  g.add(cyl(0.58, 0.58, 0.02, 16, 0x5a5a5a, 0, 0.022, 0));
+  const lid = cyl(0.5, 0.5, 0.05, 16, 0x3d3d3d, 0.55, 0.06, -0.55);
+  lid.rotation.z = 0.12;
+  g.add(lid);
+  g.add(cyl(0.02, 0.14, 0.42, 8, ORANGE, -0.45, 0.21, 0.6));
+  g.add(cyl(0.075, 0.1, 0.07, 8, WHITE, -0.45, 0.24, 0.6));
+  return g;
+}
+
+// A plank ramp, low end toward you, with orange chevrons up the middle.
+function build_ramp() {
+  const g = new THREE.Group();
+  const L = 2.45;
+  const H = 0.5;
+  const a = Math.atan2(H, L);
+  const deck = box(1.4, 0.06, L, 0xb07a45, 0, H / 2, 0);
+  deck.rotation.x = a;
+  g.add(deck);
+  for (let k = 0; k < 3; k++) {
+    const z = 0.7 - k * 0.6;
+    const ch = box(0.5, 0.02, 0.14, k % 2 ? WHITE : ORANGE, 0, H / 2 - Math.tan(a) * z + 0.045, z);
+    ch.rotation.x = a;
+    g.add(ch);
+  }
+  // Trestle under the high end and the side rails.
+  g.add(box(1.3, H, 0.1, 0x6e4a2a, 0, H / 2, -L / 2 + 0.06));
+  for (const sx of [-1, 1]) {
+    const rail = box(0.06, 0.1, L, 0x6e4a2a, sx * 0.68, H / 2 + 0.06, 0);
+    rail.rotation.x = a;
+    g.add(rail);
+  }
+  return g;
 }
 
 // Roadside scenery: house facades, palms, lamps and flags.

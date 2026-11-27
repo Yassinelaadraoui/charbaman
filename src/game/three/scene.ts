@@ -5,8 +5,9 @@ import { buildHero, dressHero, HeroRig, poseHero } from './hero';
 import type { Suit } from '../progression';
 import { maskTexture } from './models/decode';
 import { PARTICLES } from './particleTextures';
+import { driftClouds, skyExtras, SkyExtras, skylineBlocks } from './backdrop';
 import { asphaltTexture, blobTexture, glowTexture, paverTexture } from './surfaces';
-import { entityObject, flatten, flag, giantBottle, policeChaser, hasModelHouses, house, lamp, landmark, maple, mat, modelHouse, palm, shadeHex, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, bakedMap, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
+import { entityObject, flatten, flag, giantBottle, policeChaser, hasModelHouses, house, lamp, landmark, maple, modelHouse, palm, walkingKid, KID_CYCLE, zebra, manhole, teaTable, warmModels, bakedMap, fruitStall, chickens, busStop, oldMan, pigeons, seagull, dangerSign, animate, OLD_MAN_CYCLE, GULL_CYCLE, DONKEY_CYCLE, cat, CAT_CYCLE, spiceMarket } from './props';
 
 // Engine space: x lateral, z forward along the street, y up.
 // Three space: the hero stays at the origin and runs toward -z, so world z = -(engineZ - s.z).
@@ -65,12 +66,15 @@ export class GameRenderer {
   blobMat: THREE.MeshBasicMaterial; // soft contact shadows under cars, carts and crates
   sky: THREE.Mesh;
   skyline = new THREE.Group();
+  extras?: SkyExtras; // sun or moon and stars, clouds
   sea: THREE.Mesh;
   hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
   giant: THREE.Group;
   police: THREE.Group;
   bubble: THREE.Mesh; // the shield, a faint green bubble round the hero
+  aura: THREE.Sprite; // the golden glow of a Charba Rush
+  private rushAt = 0;
   private dustAt = 0;
   pool = new Map<string, Pooled>();
   particles: Particle[] = [];
@@ -170,6 +174,9 @@ export class GameRenderer {
     );
     this.bubble.visible = false;
     this.scene.add(this.bubble);
+    this.aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffb020, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75 }));
+    this.aura.visible = false;
+    this.scene.add(this.aura);
     this.police = policeChaser();
     this.police.visible = false;
     this.scene.add(this.police);
@@ -285,14 +292,11 @@ export class GameRenderer {
 
     // Rebuild the skyline for this city: a ring of far blocks plus landmarks.
     this.skyline.clear();
-    for (let i = 0; i < 40; i++) {
-      const r = hash(c.seed * 100 + i);
-      const w = 10 + r * 16;
-      const h = 8 + hash(c.seed * 200 + i) * 22;
-      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 10), mat(i % 2 ? c.far : '#' + shadeHex(c.far, -8).toString(16).padStart(6, '0')));
-      b.position.set(-300 + i * 15 + r * 6, h / 2, -225 - hash(i + 7) * 30); // behind the landmarks
-      this.skyline.add(b);
-    }
+    // Medina rooftops in two hazy rows (and far hills inland), behind the landmarks.
+    this.skyline.add(...skylineBlocks(c).children);
+    if (this.extras) this.scene.remove(this.extras.group);
+    this.extras = skyExtras(c);
+    this.scene.add(this.extras.group);
     c.landmarks.forEach((lm, j) => {
       const l = landmark(lm, c);
       if (lm !== 'mosque' && lm !== 'mountain') l.scale.setScalar(1.4); // further back than before, so a little bigger
@@ -304,7 +308,7 @@ export class GameRenderer {
       l.position.set([-4, -85, 85, -160][j % 4] + (lm === 'bab' && j === 0 ? 4 : hash(c.seed + j) * (j ? 20 : 8)), 0, -195 - (j % 2) * 15);
       this.skyline.add(l);
     });
-    // One draw call for all the far blocks instead of forty.
+    // A couple of draw calls for all the far blocks instead of hundreds.
     const merged = flatten(this.skyline);
     this.skyline.clear();
     this.skyline.add(...merged.children);
@@ -336,6 +340,8 @@ export class GameRenderer {
       scooter: [0.9, 1.7],
       donkey: [e.w * 2.3, e.depth * 1.1],
       crate: [e.w * 2.1, e.depth * 1.8],
+      melon: [0.75, 0.75],
+      ramp: [1.8, 3],
     };
     const size = sized[e.kind];
     if (!size || this.lite) return o;
@@ -394,7 +400,7 @@ export class GameRenderer {
     this.camDist += (targetDist - this.camDist) * 0.05;
     this.camHeight += (targetHeight - this.camHeight) * 0.05;
     // A wider view at speed sells the rush of the skateboard and the chase.
-    this.fovKick += ((s.skate > 0 ? 7 : 0) + (chase ? 3 : 0) - this.fovKick) * 0.06;
+    this.fovKick += ((s.skate > 0 ? 7 : 0) + (s.rush > 0 ? 8 : 0) + (chase ? 3 : 0) - this.fovKick) * 0.06;
     const camX = s.x * 0.6;
     // In the chase the ground rumbles, harder as the chaser closes in.
     const rumble = chase ? 0.04 + Math.max(0, 1 - s.chaseGap / 12) * 0.12 : 0;
@@ -410,6 +416,10 @@ export class GameRenderer {
 
     // Sky and skyline turn with the street.
     this.sky.position.set(this.camera.position.x, 0, this.camera.position.z);
+    if (this.extras) {
+      this.extras.group.position.set(this.camera.position.x - curveIntegral(s.z) * 20, 0, this.camera.position.z);
+      driftClouds(this.extras, t);
+    }
     // Gently, so the city's landmark stays in view down the street as the road bends.
     this.skyline.position.x = -curveIntegral(s.z) * 45 - camX * 0.3;
     this.skyline.position.z = this.camera.position.z;
@@ -431,8 +441,20 @@ export class GameRenderer {
       sliding: s.slide > 0,
       skating: s.skate > 0,
       tajine: s.tajine > 0,
+      speed: s.speed,
       dt: s.time - this.lastTime,
     });
+    // Charba Rush: a golden glow round the hero and sparks streaming off him.
+    const rushing = s.rush > 0 && (s.rush > 1 || Math.floor(t * 10) % 2 === 0);
+    this.aura.visible = rushing;
+    if (rushing) {
+      this.aura.position.set(s.x, s.y + (s.slide > 0 ? 0.5 : 1.0), 0.1);
+      this.aura.scale.setScalar(2.6 + Math.sin(t * 18) * 0.2);
+      if (t - this.rushAt > (this.lite ? 0.12 : 0.05)) {
+        this.rushAt = t;
+        this.burst('skate', s.x + (Math.random() - 0.5) * 0.8, 0.3 + Math.random() * 1.4, s.z - 0.3);
+      }
+    }
     this.bubble.visible = s.shield > 0 && (s.shield > 2 || Math.floor(t * 8) % 2 === 0); // blinks as it runs out
     if (this.bubble.visible) {
       this.bubble.position.set(s.x, s.y + (s.slide > 0 ? 0.55 : 0.95), 0);
@@ -462,6 +484,11 @@ export class GameRenderer {
           blue.visible = !on;
         }
         if (e.vz) o.position.y = Math.sin(t * 13 + e.id) * 0.015;
+      }
+      if (e.kind === 'melon') {
+        const roll = o.getObjectByName('roll');
+        if (roll) roll.rotation.x = ((e.homeZ ?? e.z) - e.z) / 0.28;
+        o.visible = !e.done; // smashed or hit: gone
       }
       if (e.kind === 'donkey') {
         o.rotation.y = 0; // plods toward you

@@ -1,6 +1,6 @@
 import type { City } from '../cities';
 import type { Suit } from '../progression';
-import { heroJobs, suitMap } from './hero';
+import { heroJobs } from './hero';
 import { WarmJob, warmJobs } from './props';
 
 // Getting a run on screen means decoding the hero and every baked model the city shows (JPEG atlases decoded in
@@ -15,7 +15,6 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 // The jobs a run in this city needs (no city: the endless run, which passes through every city).
 export function jobsFor(c: City | undefined, suit?: Suit): WarmJob[] {
   const jobs: WarmJob[] = [...heroJobs];
-  if (suit && suit.id !== 'classic') jobs.push({ key: `suit:${suit.id}`, run: () => suitMap(suit) });
   return jobs.concat(warmJobs(c));
 }
 

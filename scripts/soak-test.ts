@@ -13,8 +13,9 @@ function bot(s: GameState): Input {
   for (const e of ahead) {
     if (e.kind === 'can' || e.kind === 'cash' || e.kind === 'skate' || e.kind === 'magnet' || e.kind === 'shield') continue;
     if (Math.abs(e.x - s.x) > e.w + 0.6) continue;
+    if (e.kind === 'ramp') continue;
     if (e.kind === 'awning') input.slide = e.z - s.z < 2 + s.speed * 0.15;
-    else if (e.kind === 'crate') input.jump = e.z - s.z < 1 + s.speed * 0.25; // the jump clears 0.9 m for ~0.5 s
+    else if (e.kind === 'crate' || (e.kind === 'hole' && e.w > 1)) input.jump = e.z - s.z < 1 + s.speed * 0.25; // the jump clears 0.9 m for ~0.5 s
     else if (e.kind === 'checkpoint' || e.kind === 'finish') continue;
     else input.steer = (s.x > e.x ? 1 : -1) * 0.12;
   }
@@ -33,7 +34,7 @@ function play(mode: 'stage' | 'endless', cityIndex: number, seconds: number) {
     if (Math.abs(s.x) > 3.5) throw new Error(`left the street: x=${s.x}`);
     if (s.phase === 'clear' || s.phase === 'over') break;
   }
-  return { phase: s.phase, z: Math.round(s.z), time: Math.round(s.time), score: s.score, bonus: s.bonus, close: s.closeCalls, stars: starsOf(s), cans: `${s.cans}/${s.cansTotal}`, hits: s.hits, power: s.powerups, lives: s.lives, maxEntities };
+  return { phase: s.phase, z: Math.round(s.z), time: Math.round(s.time), score: s.score, bonus: s.bonus, close: s.closeCalls, stars: starsOf(s), cans: `${s.cans}/${s.cansTotal}`, hits: s.hits, power: s.powerups, smash: s.smashes, lives: s.lives, maxEntities };
 }
 
 let failed = false;
