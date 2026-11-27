@@ -11,6 +11,8 @@ const TIPS: [string, string][] = [
   ['⬇️', 'slide'],
   ['🍊', 'bottles'],
   ['💥', 'hits'],
+  ['🍉', 'street'],
+  ['🔥', 'rush'],
   ['⚡', 'dash'],
   ['🛹', 'skate'],
   ['🧲', 'power'],

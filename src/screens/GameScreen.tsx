@@ -58,7 +58,7 @@ const SWIPE_COOLDOWN = 140; // ms before the same touch can swipe again
 const STEER_SPAN = 0.36; // dragging this share of the screen width crosses half the street
 
 // First-run coaching: the first time each kind of obstacle comes up, time slows and a hint says what to do.
-const COACH: Partial<Record<EntityKind, 'hint.jump' | 'hint.slide' | 'hint.dodge'>> = { crate: 'hint.jump', awning: 'hint.slide', taxi: 'hint.dodge' };
+const COACH: Partial<Record<EntityKind, 'hint.jump' | 'hint.slide' | 'hint.dodge'>> = { crate: 'hint.jump', awning: 'hint.slide', taxi: 'hint.dodge', hole: 'hint.jump' };
 const SLOWMO = 1.1; // seconds of slow motion (real time)
 const SLOWMO_SCALE = 0.35;
 
@@ -164,6 +164,7 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
         pop('+200 DH', colors.mint, true);
         buzz('success');
         break;
+      case 'fall':
       case 'hit':
         play('hit');
         gfx.current?.burst('hit', s.x, 0.9, s.z + 0.8);
@@ -231,6 +232,24 @@ export function GameScreen({ mode, cityIndex, lite = false, coach = false, suit 
         play('life');
         pop(t('pop.combo', { n: e.n ?? 2 }), colors.gold, true);
         buzz('success');
+        break;
+      case 'ramp':
+        play('jump');
+        gfx.current?.burst('skate', s.x, 0.4, s.z);
+        pop(t('pop.ramp'), colors.gold, true);
+        buzz('success');
+        break;
+      case 'rush':
+        play('chase');
+        showBanner(t('banner.rush'));
+        buzz('heavy');
+        break;
+      case 'smash':
+        play('hit');
+        gfx.current?.burst('hit', e.x ?? s.x, 0.8, e.z ?? s.z);
+        gfx.current?.burst('bottle', e.x ?? s.x, 1, e.z ?? s.z);
+        pop('+150', colors.gold);
+        buzz('light');
         break;
       case 'close':
         play('slide');

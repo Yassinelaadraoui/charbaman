@@ -1,9 +1,12 @@
 import * as THREE from 'three';
-import { RIGGED_HERO } from './heroRigged';
-import { base64ToBytes, bakedTexture, normals } from './models/decode';
 import { tajinePickup } from './props';
 import type { Suit } from '../progression';
 import { JUMP_V } from '../engine';
+
+// Charbaman, built from three.js primitives: a chunky cartoon runner in a tracksuit with white stripes, a red fez
+// with a swinging tassel, sport shades, a moustache, white gloves and sneakers, a khatam (eight-point star) on
+// the chest and a cape that streams out behind him. Every limb is a joint holding one merged, vertex-coloured
+// mesh, so the whole hero is about twenty draw calls and needs no decoding at load time.
 
 export type HeroRig = {
   root: THREE.Group; // faces -z (away from the camera), feet at y=0
@@ -11,257 +14,305 @@ export type HeroRig = {
   tajine: THREE.Object3D;
   board: THREE.Object3D;
   body: THREE.Group;
-  skin?: SkinDriver;
+  cape: THREE.Mesh;
+  tassel: THREE.Object3D;
+  meshes: THREE.Mesh[]; // the merged, vertex-coloured parts (recoloured by dressHero)
 };
 
-// The skinned hero: poseHero writes joint rotations on stand-in objects in the same frame as the old
-// part-based rig (model facing +z), and the driver turns them into bone rotations.
-type SkinDriver = {
-  model: THREE.Group;
-  baseY: number; // hip height at rest
-  bones: { proxy: THREE.Object3D; bone: THREE.Bone; rest: THREE.Quaternion; w: THREE.Quaternion; wInv: THREE.Quaternion; armRest: number }[];
-  head: THREE.Bone;
-  run?: RunClip;
-  runWeight: number; // 0 = code poses only, 1 = the running clip only
+// ---------- Colours ----------
+
+type Role = 'green' | 'suit' | 'suitDark' | 'trim' | 'skin' | 'skinDark' | 'hair' | 'fez' | 'gold' | 'lens' | 'shine' | 'glove' | 'shoe' | 'sole' | 'cape';
+const BASE: Record<Role, number> = {
+  green: 0x1f8a4c,
+  suit: 0xff7a00,
+  suitDark: 0xd85f00,
+  trim: 0xfff4e6,
+  skin: 0xc98b5e,
+  skinDark: 0xa86d45,
+  hair: 0x2a1a12,
+  fez: 0xc8102e,
+  gold: 0xffc94a,
+  lens: 0x1d2230,
+  shine: 0xffb347,
+  glove: 0xffffff,
+  shoe: 0xf6f3ee,
+  sole: 0xff7a00,
+  cape: 0xc8102e,
 };
 
-// The model's own running loop, one stride per 2 pi of runPhase.
-type RunClip = {
-  bones: { bone: THREE.Bone; rest: THREE.Quaternion; frames: THREE.Quaternion[]; finger: boolean }[];
-  moved: { bone: THREE.Bone; rest: THREE.Vector3; frames: THREE.Vector3[] }[];
-};
-
-// Stand-in joint -> bone. The stand-ins' left is the model's right (the old part rig was mirrored).
-const BONE_OF: Record<string, string> = {
-  pelvis: 'bip_01',
-  torso: 'bip Spine_03',
-  neck: 'bip Neck_05',
-  head: 'bip Head_06',
-  upperArmL: 'bip R UpperArm_019',
-  forearmL: 'bip R Forearm_020',
-  handL: 'bip R Hand_021',
-  upperArmR: 'bip L UpperArm_09',
-  forearmR: 'bip L Forearm_010',
-  handR: 'bip L Hand_011',
-  thighL: 'bip R Thigh_032',
-  shinL: 'bip R Calf_033',
-  footL: 'bip R Foot_034',
-  thighR: 'bip L Thigh_027',
-  shinR: 'bip L Calf_028',
-  footR: 'bip L Foot_029',
-};
-const HERO_HEIGHT = 1.8;
-
-function uint16(s: string) {
-  const b = base64ToBytes(s);
-  const out = new Uint16Array(b.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = b[i * 2] | (b[i * 2 + 1] << 8);
+function palette(suit?: Suit): Record<Role, THREE.Color> {
+  const out = {} as Record<Role, THREE.Color>;
+  for (const k of Object.keys(BASE) as Role[]) out[k] = new THREE.Color(BASE[k]);
+  if (suit && suit.id !== 'classic') {
+    const [r, g, b] = suit.main;
+    out.suit.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+    out.suitDark.copy(out.suit).multiplyScalar(0.8);
+    out.sole.copy(out.suit);
+    if (suit.trim) {
+      const [tr, tg, tb] = suit.trim;
+      out.trim.setRGB(tr / 255, tg / 255, tb / 255, THREE.SRGBColorSpace);
+      // The cape takes the trim colour (a red cape on the red suit would vanish).
+      out.cape.copy(out.trim);
+      out.shine.copy(out.trim);
+    }
+  }
   return out;
 }
 
-// The hero's mesh and classic-suit atlas take a while to decode, and every run uses the same ones, so they are
-// built once (in the background, from the menus) and shared by every run's rig.
-let heroGeo: THREE.BufferGeometry | undefined;
-let heroMap: THREE.Texture | undefined;
+// Cartoon shading: three flat bands of light instead of a smooth falloff.
+let toonRamp: THREE.DataTexture | undefined;
+function ramp() {
+  if (!toonRamp) {
+    const v = [110, 190, 255];
+    const data = new Uint8Array(v.length * 4);
+    v.forEach((x, i) => data.set([x, x, x, 255], i * 4));
+    toonRamp = new THREE.DataTexture(data, v.length, 1, THREE.RGBAFormat);
+    toonRamp.minFilter = THREE.NearestFilter;
+    toonRamp.magFilter = THREE.NearestFilter;
+    toonRamp.generateMipmaps = false;
+    toonRamp.needsUpdate = true;
+  }
+  return toonRamp;
+}
+const toon = (opts: THREE.MeshToonMaterialParameters = {}) => new THREE.MeshToonMaterial({ gradientMap: ramp(), ...opts });
 
-function heroGeometry() {
-  if (heroGeo) return heroGeo;
-  const d = RIGGED_HERO;
-  const q = uint16(d.pos);
-  const pos = new Float32Array(q.length);
-  for (let i = 0; i < q.length; i++) pos[i] = d.min[i % 3] + (q[i] / 65535) * d.span[i % 3];
-  const qu = uint16(d.uv);
-  const uv = new Float32Array(qu.length);
-  for (let i = 0; i < qu.length; i++) uv[i] = qu[i] / 65535;
-  const ji = base64ToBytes(d.joints);
-  const jw = base64ToBytes(d.weights);
-  const w = new Float32Array(jw.length);
-  for (let i = 0; i < jw.length; i++) w[i] = jw[i] / 255;
+// ---------- Building blocks ----------
+
+type Part = { geo: THREE.BufferGeometry; role: Role };
+type Parts = Record<string, Part[]>;
+
+const M = new THREE.Matrix4();
+const Q = new THREE.Quaternion();
+const E = new THREE.Euler();
+const S = new THREE.Vector3();
+const P = new THREE.Vector3();
+
+function place(geo: THREE.BufferGeometry, pos: [number, number, number], rot: [number, number, number] = [0, 0, 0], scale: [number, number, number] = [1, 1, 1]) {
+  M.compose(P.set(...pos), Q.setFromEuler(E.set(...rot)), S.set(...scale));
+  return geo.applyMatrix4(M);
+}
+
+// A tapered limb segment from the joint along -y (legs) or -x (the L arm) / +x (the R arm).
+function limb(r0: number, r1: number, len: number) {
+  return new THREE.CylinderGeometry(r0, r1, len, 10, 1).translate(0, -len / 2, 0);
+}
+const ball = (r: number) => new THREE.SphereGeometry(r, 12, 9);
+
+// Merges one joint's parts into a single vertex-coloured mesh; userData.roles remembers which vertices take
+// which colour, so a new suit only rewrites the colour buffer.
+function merge(parts: Part[], colors: Record<Role, THREE.Color>, mat: THREE.Material) {
+  const geos = parts.map((p) => (p.geo.index ? p.geo.toNonIndexed() : p.geo));
+  let n = 0;
+  for (const g of geos) n += g.attributes.position.count;
+  const pos = new Float32Array(n * 3);
+  const nor = new Float32Array(n * 3);
+  const col = new Float32Array(n * 3);
+  const roles: { start: number; count: number; role: Role }[] = [];
+  let o = 0;
+  geos.forEach((g, i) => {
+    const c = g.attributes.position.count;
+    pos.set(g.attributes.position.array as Float32Array, o * 3);
+    nor.set(g.attributes.normal.array as Float32Array, o * 3);
+    roles.push({ start: o, count: c, role: parts[i].role });
+    o += c;
+  });
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(Array.from(ji), 4));
-  geo.setAttribute('skinWeight', new THREE.BufferAttribute(w, 4));
-  geo.setIndex(new THREE.BufferAttribute(uint16(d.index), 1));
-  // Every triangle has its own corners (its own atlas patch), so average normals by position: smooth skin.
-  geo.setAttribute('normal', new THREE.BufferAttribute(normals(pos, q, true), 3));
-  heroGeo = geo;
-  return geo;
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.userData.roles = roles;
+  paint(mesh, colors);
+  return mesh;
 }
 
-function heroAtlas() {
-  heroMap ??= bakedTexture({ size: [], min: [], span: [], pos: '', uv: '', atlas: RIGGED_HERO.atlas ?? 1024, jpeg: RIGGED_HERO.jpeg });
-  return heroMap;
+function paint(mesh: THREE.Mesh, colors: Record<Role, THREE.Color>) {
+  const col = mesh.geometry.attributes.color as THREE.BufferAttribute;
+  for (const r of mesh.userData.roles as { start: number; count: number; role: Role }[]) {
+    const c = colors[r.role];
+    for (let i = r.start; i < r.start + r.count; i++) col.setXYZ(i, c.r, c.g, c.b);
+  }
+  col.needsUpdate = true;
 }
 
-export const heroJobs: { key: string; run: () => void }[] = [
-  { key: 'hero:geo', run: heroGeometry },
-  { key: 'hero:tex', run: heroAtlas },
-];
-
-function buildSkinned(body: THREE.Group): { joints: Record<string, THREE.Object3D>; skin: SkinDriver } {
-  const d = RIGGED_HERO;
-  const geo = heroGeometry();
-
-  const bones = d.bones.map((b) => {
-    const bone = new THREE.Bone();
-    bone.name = b.name;
-    bone.position.fromArray(b.t);
-    bone.quaternion.fromArray(b.q);
-    bone.scale.fromArray(b.s);
-    return bone;
-  });
-  // Turn the model to face +z like the old rig, and size it.
-  const yaw = d.yaw ?? Math.PI / 2; // the first hero model faced +x
-  const armRestAngle = d.armRest ?? 1.15; // and its arms hung about 66 degrees below a T-pose
-  const model = new THREE.Group();
-  model.rotation.y = -yaw;
-  model.scale.setScalar(HERO_HEIGHT / (d.restMax[1] - d.restMin[1]));
-  d.bones.forEach((b, i) => (b.parent >= 0 ? bones[b.parent] : model).add(bones[i]));
-  const inverses = [];
-  for (let i = 0; i < bones.length; i++) inverses.push(new THREE.Matrix4().fromArray(d.ibm, i * 16));
-  const map = heroAtlas();
-  const mesh = new THREE.SkinnedMesh(geo, new THREE.MeshLambertMaterial({ map }));
-  mesh.frustumCulled = false;
-  model.add(mesh);
-  mesh.bind(new THREE.Skeleton(bones, inverses), new THREE.Matrix4());
-  body.add(model);
-
-  // Rest orientation of each bone in the old rig's frame (model facing +z).
-  const facing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
-  const restWorld: THREE.Quaternion[] = [];
-  d.bones.forEach((b, i) => {
-    const local = new THREE.Quaternion().fromArray(b.q);
-    restWorld[i] = (b.parent >= 0 ? restWorld[b.parent].clone() : facing.clone()).multiply(local);
-  });
-  const joints: Record<string, THREE.Object3D> = {};
-  const driven: SkinDriver['bones'] = [];
-  for (const [joint, boneName] of Object.entries(BONE_OF)) {
-    const i = d.bones.findIndex((b) => b.name === boneName);
-    const proxy = new THREE.Object3D();
-    joints[joint] = proxy;
-    const wq = restWorld[i];
-    const armRest = joint === 'upperArmL' ? armRestAngle : joint === 'upperArmR' ? -armRestAngle : 0;
-    driven.push({ proxy, bone: bones[i], rest: bones[i].quaternion.clone(), w: wq.clone(), wInv: wq.clone().invert(), armRest });
-  }
-  const hip = d.bones.findIndex((b) => b.name === BONE_OF.pelvis);
-  model.updateMatrixWorld(true);
-  const hipPos = new THREE.Vector3();
-  bones[hip].getWorldPosition(hipPos);
-  joints.pelvis.position.y = hipPos.y;
-  let run: RunClip | undefined;
-  if (d.run) {
-    const r = d.run;
-    run = {
-      bones: r.bones.map((bi, k) => ({
-        bone: bones[bi],
-        rest: bones[bi].quaternion.clone(),
-        finger: bones[bi].name.includes('Finger'),
-        frames: r.q.map((f) => new THREE.Quaternion(f[k * 4], f[k * 4 + 1], f[k * 4 + 2], f[k * 4 + 3])),
-      })),
-      moved: r.tBones.map((bi, k) => ({
-        bone: bones[bi],
-        rest: bones[bi].position.clone(),
-        frames: r.t.map((f) => new THREE.Vector3(f[k * 3], f[k * 3 + 1], f[k * 3 + 2])),
-      })),
-    };
-  }
-  const head = bones[d.bones.findIndex((b) => b.name === BONE_OF.head)];
-  return { joints, skin: { model, baseY: hipPos.y, bones: driven, head, run, runWeight: 0 } };
+// An eight-point star (two overlapping squares), flat on the chest.
+function star(size: number, depth: number) {
+  const a = new THREE.BoxGeometry(size, size, depth);
+  const b = new THREE.BoxGeometry(size, size, depth).rotateZ(Math.PI / 4);
+  return [a, b];
 }
 
-const tmpQ = new THREE.Quaternion();
-const tmpE = new THREE.Euler();
-const tmpV = new THREE.Vector3();
+// ---------- The model ----------
 
-const clipQ = new THREE.Quaternion();
-const clipV = new THREE.Vector3();
+// Sizes (metres). The hero stands 1.8 m to the top of the head, the fez adds a little more.
+const HIP = 0.92;
+const THIGH = 0.43;
+const SHIN = 0.41;
+const UPPER = 0.27;
+const FORE = 0.24;
+const SHOULDER_X = 0.235;
+const SHOULDER_Y = 0.4;
+const CAPE_COLS = 4;
+const CAPE_ROWS = 8;
+const CAPE_LEN = 0.6;
+const CAPE_TOP = 0.36;
+const CAPE_BOTTOM = 0.5;
 
-function driveSkin(rig: HeroRig, runPhase: number) {
-  const k = rig.skin!;
-  const run = k.run;
-  const w = run ? k.runWeight : 0;
-  // Bones the code poses leave alone go back to rest before the clip is blended in.
-  if (run) for (const b of run.bones) b.bone.quaternion.copy(b.rest);
-  for (const b of k.bones) {
-    tmpE.copy(b.proxy.rotation);
-    tmpE.z -= b.armRest;
-    tmpQ.setFromEuler(tmpE);
-    // Rotate about the rest-pose axes of the old rig: rest * (W^-1 * D * W).
-    b.bone.quaternion.copy(b.rest).multiply(b.wInv.clone().multiply(tmpQ).multiply(b.w));
+function buildParts(): Parts {
+  const parts: Parts = { pelvis: [], torso: [], neck: [], head: [], upperArmL: [], forearmL: [], handL: [], upperArmR: [], forearmR: [], handR: [], thighL: [], shinL: [], footL: [], thighR: [], shinR: [], footR: [] };
+  const add = (joint: string, role: Role, ...geos: THREE.BufferGeometry[]) => geos.forEach((geo) => parts[joint].push({ geo, role }));
+
+  // Hips: shorts-shaped block with a white belt and a gold buckle.
+  const hips = new THREE.LatheGeometry([new THREE.Vector2(0.001, -0.13), new THREE.Vector2(0.13, -0.13), new THREE.Vector2(0.175, -0.06), new THREE.Vector2(0.18, 0.02), new THREE.Vector2(0.17, 0.08), new THREE.Vector2(0.001, 0.08)], 14);
+  add('pelvis', 'suit', place(hips, [0, 0, 0], [0, 0, 0], [1, 1, 0.72]));
+  add('pelvis', 'trim', place(new THREE.CylinderGeometry(0.183, 0.183, 0.05, 14, 1, true), [0, 0.045, 0], [0, 0, 0], [1, 1, 0.74]));
+  add('pelvis', 'gold', place(new THREE.BoxGeometry(0.07, 0.05, 0.03), [0, 0.045, 0.13]));
+
+  // Chest: a V-shaped torso, the khatam star on the front, a collar.
+  const chest = new THREE.LatheGeometry(
+    [new THREE.Vector2(0.001, 0), new THREE.Vector2(0.165, 0), new THREE.Vector2(0.17, 0.1), new THREE.Vector2(0.2, 0.25), new THREE.Vector2(0.235, 0.37), new THREE.Vector2(0.22, 0.44), new THREE.Vector2(0.12, 0.5), new THREE.Vector2(0.001, 0.51)],
+    20,
+  );
+  add('torso', 'suit', place(chest, [0, 0, 0], [0, 0, 0], [1, 1, 0.72]));
+  // Side stripes down the ribs.
+  for (const sx of [-1, 1]) add('torso', 'trim', place(new THREE.BoxGeometry(0.03, 0.4, 0.07), [sx * 0.2, 0.22, 0], [0, 0, sx * -0.14]));
+  const [s1, s2] = star(0.12, 0.03);
+  add('torso', 'trim', place(s1, [0, 0.3, 0.145], [-0.25, 0, 0]), place(s2, [0, 0.3, 0.145], [-0.25, 0, 0]));
+  add('torso', 'green', place(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 12).rotateX(Math.PI / 2), [0, 0.3, 0.158], [-0.25, 0, 0]));
+  add('torso', 'trim', place(new THREE.TorusGeometry(0.085, 0.025, 6, 14).rotateX(Math.PI / 2), [0, 0.49, 0]));
+  // Cape clasps on the shoulders.
+  for (const sx of [-1, 1]) add('torso', 'gold', place(ball(0.035), [sx * 0.15, 0.44, -0.07]));
+
+  // Neck.
+  add('neck', 'skin', place(new THREE.CylinderGeometry(0.06, 0.065, 0.12, 10), [0, 0.03, 0]));
+
+  // Head: skull and jaw, ears, nose, hair at the back, the moustache, the shades.
+  add('head', 'skin', place(ball(0.135), [0, 0.13, 0], [0, 0, 0], [1, 1.08, 1.02]));
+  add('head', 'skin', place(ball(0.105), [0, 0.06, 0.03], [0, 0, 0], [1.05, 0.75, 1]));
+  for (const sx of [-1, 1]) add('head', 'skinDark', place(ball(0.035), [sx * 0.135, 0.12, -0.005], [0, 0, 0], [0.6, 1, 1]));
+  add('head', 'skinDark', place(new THREE.ConeGeometry(0.025, 0.06, 8).rotateX(Math.PI / 2), [0, 0.1, 0.15]));
+  add('head', 'hair', place(new THREE.SphereGeometry(0.142, 14, 8, Math.PI, Math.PI, 0.3, Math.PI * 0.42), [0, 0.13, -0.004], [0, 0, 0], [1, 1.08, 1.02]));
+  for (const sx of [-1, 1]) add('head', 'hair', place(new THREE.CapsuleGeometry(0.02, 0.06, 3, 8), [sx * 0.04, 0.07, 0.135], [0, 0, sx * 1.1]));
+  add('head', 'hair', place(new THREE.BoxGeometry(0.06, 0.014, 0.02), [-0.05, 0.188, 0.128], [0, 0, 0.12]), place(new THREE.BoxGeometry(0.06, 0.014, 0.02), [0.05, 0.188, 0.128], [0, 0, -0.12]));
+  add('head', 'lens', place(new THREE.CylinderGeometry(0.143, 0.14, 0.06, 18, 1, true, -1.25, 2.5), [0, 0.15, 0.004], [0, 0, 0], [1.02, 1, 1.06]));
+  add('head', 'shine', place(new THREE.CylinderGeometry(0.145, 0.145, 0.012, 18, 1, true, -1.2, 2.4), [0, 0.175, 0.004], [0, 0, 0], [1.02, 1, 1.06]));
+  // The fez: a truncated cone, a little tilted back, with a button on top.
+  const fez = new THREE.LatheGeometry([new THREE.Vector2(0.1, 0), new THREE.Vector2(0.095, 0.03), new THREE.Vector2(0.082, 0.15), new THREE.Vector2(0.001, 0.152)], 16);
+  add('head', 'fez', place(fez, [0, 0.215, -0.01], [-0.18, 0, 0.05]));
+  add('head', 'hair', place(ball(0.014), [0.007, 0.366, -0.037]));
+
+  // Arms: L reaches along -x, R along +x (T-pose; the pose code lowers them).
+  for (const [side, sx] of [['L', -1], ['R', 1]] as const) {
+    add(`upperArm${side}`, 'suit', place(ball(0.088), [sx * 0.01, 0, 0]));
+    add(`upperArm${side}`, 'suit', place(limb(0.068, 0.056, UPPER), [0, 0, 0], [0, 0, sx * Math.PI / 2]));
+    add(`upperArm${side}`, 'trim', place(new THREE.BoxGeometry(UPPER * 0.8, 0.02, 0.03), [sx * UPPER * 0.5, 0.063, 0]));
+    add(`forearm${side}`, 'suit', place(ball(0.055), [0, 0, 0]));
+    add(`forearm${side}`, 'suit', place(limb(0.054, 0.046, FORE), [0, 0, 0], [0, 0, sx * Math.PI / 2]));
+    add(`forearm${side}`, 'glove', place(new THREE.CylinderGeometry(0.062, 0.068, 0.07, 10), [sx * (FORE - 0.02), 0, 0], [0, 0, Math.PI / 2]));
+    // A fist: knuckles forward, thumb on top.
+    add(`hand${side}`, 'glove', place(ball(0.07), [sx * 0.055, 0, 0.005], [0, 0, 0], [1.15, 0.85, 1]));
+    add(`hand${side}`, 'glove', place(new THREE.CapsuleGeometry(0.022, 0.03, 3, 8), [sx * 0.04, 0.04, 0.035], [0, 0, Math.PI / 2]));
   }
-  if (run && w > 0.001) {
-    const n = run.bones[0].frames.length;
-    const f = ((((runPhase / (Math.PI * 2)) * n) % n) + n) % n;
-    const a = Math.floor(f);
-    const b = (a + 1) % n;
-    const t = f - a;
-    for (const r of run.bones) {
-      clipQ.slerpQuaternions(r.frames[a], r.frames[b], t);
-      // Fingers keep the clip's curled fists whatever the body is doing: at rest the hands are flat and open.
-      r.bone.quaternion.slerp(clipQ, r.finger ? 1 : w);
+
+  // Legs, with a white stripe down the outside, white socks and chunky sneakers.
+  for (const [side, sx] of [['L', -1], ['R', 1]] as const) {
+    add(`thigh${side}`, 'suit', place(ball(0.1), [0, -0.01, 0]));
+    add(`thigh${side}`, 'suit', place(limb(0.098, 0.074, THIGH), [0, 0, 0]));
+    add(`thigh${side}`, 'trim', place(new THREE.BoxGeometry(0.025, THIGH * 0.9, 0.035), [sx * 0.088, -THIGH * 0.48, 0], [0, 0, sx * 0.05]));
+    add(`shin${side}`, 'suit', place(ball(0.074), [0, 0, 0]));
+    add(`shin${side}`, 'suit', place(limb(0.072, 0.056, SHIN - 0.04), [0, 0, 0]));
+    add(`shin${side}`, 'trim', place(new THREE.BoxGeometry(0.022, SHIN * 0.8, 0.03), [sx * 0.066, -SHIN * 0.42, 0], [0, 0, sx * 0.035]));
+    add(`shin${side}`, 'trim', place(new THREE.CylinderGeometry(0.06, 0.058, 0.06, 10), [0, -SHIN + 0.02, 0]));
+    // Foot joint at the ankle, 8 cm above the street.
+    add(`foot${side}`, 'shoe', place(new THREE.CapsuleGeometry(0.068, 0.15, 4, 10).rotateX(Math.PI / 2), [0, -0.035, 0.055], [0, 0, 0], [1, 0.78, 1]));
+    add(`foot${side}`, 'sole', place(new THREE.BoxGeometry(0.125, 0.03, 0.29), [0, -0.068, 0.055]));
+    add(`foot${side}`, 'suitDark', place(new THREE.BoxGeometry(0.07, 0.02, 0.1), [0, 0.005, 0.1], [0.35, 0, 0]));
+  }
+  return parts;
+}
+
+// The joints, in the frame the pose code works in: the model faces +z, the L limbs are on -x.
+function buildSkeleton() {
+  const j: Record<string, THREE.Object3D> = {};
+  const mk = (name: string, parent: THREE.Object3D | null, x: number, y: number, z = 0) => {
+    const o = new THREE.Group();
+    o.name = name;
+    o.position.set(x, y, z);
+    parent?.add(o);
+    j[name] = o;
+    return o;
+  };
+  const pelvis = mk('pelvis', null, 0, HIP);
+  const torso = mk('torso', pelvis, 0, 0.07);
+  const neck = mk('neck', torso, 0, 0.49);
+  mk('head', neck, 0, 0.07);
+  for (const [side, sx] of [['L', -1], ['R', 1]] as const) {
+    const ua = mk(`upperArm${side}`, torso, sx * SHOULDER_X, SHOULDER_Y);
+    const fa = mk(`forearm${side}`, ua, sx * UPPER, 0);
+    mk(`hand${side}`, fa, sx * FORE, 0);
+    const th = mk(`thigh${side}`, pelvis, sx * 0.1, -0.03);
+    const sh = mk(`shin${side}`, th, 0, -THIGH);
+    mk(`foot${side}`, sh, 0, -SHIN);
+  }
+  return j;
+}
+
+function buildCape(colors: Record<Role, THREE.Color>) {
+  const n = (CAPE_COLS + 1) * (CAPE_ROWS + 1);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  const idx: number[] = [];
+  for (let r = 0; r < CAPE_ROWS; r++)
+    for (let c = 0; c < CAPE_COLS; c++) {
+      const a = r * (CAPE_COLS + 1) + c;
+      const b = a + CAPE_COLS + 1;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
     }
-    for (const r of run.moved) {
-      clipV.lerpVectors(r.frames[a], r.frames[b], t);
-      r.bone.position.lerpVectors(r.rest, clipV, w);
-    }
-  } else if (run) {
-    for (const r of run.moved) r.bone.position.copy(r.rest);
-    for (const r of run.bones) if (r.finger) r.bone.quaternion.copy(r.frames[0]);
+  geo.setIndex(idx);
+  const cape = new THREE.Mesh(geo, toon({ vertexColors: true, side: THREE.DoubleSide }));
+  cape.frustumCulled = false;
+  cape.position.set(0, 0.45, -0.1);
+  paintCape(cape, colors);
+  return cape;
+}
+
+// Cape cloth with a gold hem along the bottom row.
+function paintCape(cape: THREE.Mesh, colors: Record<Role, THREE.Color>) {
+  const col = cape.geometry.attributes.color as THREE.BufferAttribute;
+  for (let r = 0; r <= CAPE_ROWS; r++) {
+    const c = r === CAPE_ROWS ? colors.gold : colors.cape;
+    for (let k = 0; k <= CAPE_COLS; k++) col.setXYZ(r * (CAPE_COLS + 1) + k, c.r, c.g, c.b);
   }
-  // The clip bobs the hips itself, so the code poses' hip height fades out as it takes over.
-  k.model.position.y = (rig.joints.pelvis.position.y - k.baseY) * (1 - w);
-  // The tajine sits on the head wherever the head goes.
-  k.model.updateMatrixWorld(true);
-  k.head.getWorldPosition(tmpV);
-  rig.root.worldToLocal(tmpV);
-  rig.tajine.position.set(tmpV.x, tmpV.y + 0.12, tmpV.z);
+  col.needsUpdate = true;
 }
 
-// Re-dyes the suit: the atlas is flat colours (orange suit, white trim, grey shading, navy), so orange pixels
-// take the suit's main colour and, for suits that have one, white pixels take its trim, each keeping their
-// brightness so the anti-aliased edges still blend.
-const suitMaps = new Map<string, THREE.Texture>();
-export function dressHero(rig: HeroRig, suit: Suit) {
-  if (suit.id === 'classic') return; // a new rig already wears the classic suit
-  const map = suitMap(suit);
-  rig.body.traverse((o) => {
-    const m = o as THREE.SkinnedMesh;
-    if (m.isSkinnedMesh) {
-      (m.material as THREE.MeshLambertMaterial).map = map;
-      (m.material as THREE.MeshLambertMaterial).needsUpdate = true;
-    }
-  });
-}
-
-// A suit's atlas, painted once and kept. The classic suit is the model's own atlas.
-export function suitMap(suit: Suit) {
-  if (suit.id === 'classic') return heroAtlas();
-  let map = suitMaps.get(suit.id);
-  if (!map) {
-    const [mr, mg, mb] = suit.main;
-    const trim = suit.trim;
-    map = bakedTexture({ size: [], min: [], span: [], pos: '', uv: '', atlas: RIGGED_HERO.atlas ?? 1024, jpeg: RIGGED_HERO.jpeg }, (px, i) => {
-      const r = px[i];
-      const g = px[i + 1];
-      const b = px[i + 2];
-      const orange = r - b; // 255 for the suit, about 0 for white, grey and navy
-      if (orange > 60) {
-        const k = Math.min(1, orange / 255);
-        const lum = r / 255;
-        px[i] = Math.round((mr * lum) * k + r * (1 - k));
-        px[i + 1] = Math.round((mg * lum) * k + g * (1 - k));
-        px[i + 2] = Math.round((mb * lum) * k + b * (1 - k));
-      } else if (trim && r > 225 && g > 225 && b > 215) {
-        const lum = (r + g + b) / 765;
-        px[i] = Math.round(trim[0] * lum);
-        px[i + 1] = Math.round(trim[1] * lum);
-        px[i + 2] = Math.round(trim[2] * lum);
+// Lays the cape out for this frame: it hangs from the shoulders and streams back the faster he runs, rippling.
+// The rows are evenly spaced except the last, a thin hem; the middle is shorter than the corners (a swallowtail).
+function flowCape(cape: THREE.Mesh, clock: number, lift: number, flutter: number) {
+  const pos = cape.geometry.attributes.position as THREE.BufferAttribute;
+  for (let c = 0; c <= CAPE_COLS; c++) {
+    const u = c / CAPE_COLS - 0.5;
+    const len = CAPE_LEN * (0.8 + 0.4 * Math.abs(u));
+    const seg = (len - 0.05) / (CAPE_ROWS - 1);
+    let y = 0;
+    let z = 0;
+    for (let r = 0; r <= CAPE_ROWS; r++) {
+      const v = Math.min(1, (r * seg) / len);
+      const w = CAPE_TOP + (CAPE_BOTTOM - CAPE_TOP) * v;
+      if (r > 0) {
+        const step = r === CAPE_ROWS ? 0.05 : seg;
+        const a = 0.12 + lift * (0.4 + 0.6 * v) + Math.sin(clock * 11 - v * 4.5 + u * 2.5) * flutter * v;
+        y -= Math.cos(a) * step;
+        z -= Math.sin(a) * step;
       }
-    });
-    suitMaps.set(suit.id, map);
+      // The edges curl forward a little, so the cape reads as cloth rather than a board.
+      const curl = u * u * 0.2 * (0.3 + v);
+      pos.setXYZ(r * (CAPE_COLS + 1) + c, u * w + Math.sin(clock * 7 + v * 3) * 0.03 * v, y, z + curl);
+    }
   }
-  return map;
+  pos.needsUpdate = true;
+  cape.geometry.computeVertexNormals();
 }
 
 export function buildHero(): HeroRig {
@@ -269,12 +320,45 @@ export function buildHero(): HeroRig {
   const body = new THREE.Group();
   body.rotation.y = Math.PI; // model faces +z; we run toward -z
   root.add(body);
-  const { joints, skin } = buildSkinned(body);
+  const colors = palette();
+  const mat = toon({ vertexColors: true });
+  const joints = buildSkeleton();
+  const parts = buildParts();
+  const meshes: THREE.Mesh[] = [];
+  for (const [name, list] of Object.entries(parts)) {
+    if (!list.length) continue;
+    const m = merge(list, colors, mat);
+    joints[name].add(m);
+    meshes.push(m);
+  }
+  body.add(joints.pelvis);
+
+  const cape = buildCape(colors);
+  joints.torso.add(cape);
+  flowCape(cape, 0, 0.3, 0.1);
+
+  // The fez tassel hangs from the button and swings on its own.
+  const tassel = new THREE.Group();
+  tassel.position.set(0.007, 0.366, -0.037);
+  const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.09, 4).translate(0, -0.045, 0), toon({ color: 0x1a1a1a }));
+  const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.07, 8).translate(0, -0.12, 0), toon({ color: 0x1a1a1a }));
+  tassel.add(cord, tuft);
+  joints.head.add(tassel);
+
   const tajine = makeTajine();
   root.add(tajine);
   const board = makeBoard();
   root.add(board);
-  return { root, joints, tajine, board, body, skin };
+  return { root, joints, tajine, board, body, cape, tassel, meshes };
+}
+
+// Nothing to decode ahead of a run any more: the hero is built from primitives in a couple of milliseconds.
+export const heroJobs: { key: string; run: () => void }[] = [];
+
+export function dressHero(rig: HeroRig, suit: Suit) {
+  const colors = palette(suit);
+  for (const m of rig.meshes) paint(m, colors);
+  paintCape(rig.cape, colors);
 }
 
 function makeTajine() {
@@ -298,6 +382,8 @@ function makeBoard() {
   return board;
 }
 
+// ---------- Animation ----------
+
 type Pose = {
   runPhase: number;
   airborne: boolean;
@@ -305,20 +391,21 @@ type Pose = {
   sliding: boolean;
   skating: boolean;
   tajine: boolean;
+  speed?: number; // m/s, streams the cape
   dt: number; // seconds since the last pose (game time)
 };
 
-// A pose as plain numbers, so poses can be blended. Angles are on the stand-in joints (model facing +z, negative
+// A pose as plain numbers, so poses can be blended. Angles are on the joints (model facing +z, negative
 // thigh x = forward); pelY is the hip height relative to standing.
-type P = {
-  thL: number; thR: number; shL: number; shR: number; foot: number;
-  armXL: number; armXR: number; armZ: number; fore: number;
+type PP = {
+  thL: number; thR: number; shL: number; shR: number; footL: number; footR: number;
+  armXL: number; armXR: number; armZ: number; foreL: number; foreR: number;
   torso: number; torsoY: number; head: number;
   pelX: number; pelY: number; pelYaw: number;
 };
-const KEYS = ['thL', 'thR', 'shL', 'shR', 'foot', 'armXL', 'armXR', 'armZ', 'fore', 'torso', 'torsoY', 'head', 'pelX', 'pelY', 'pelYaw'] as const;
-const blank = (): P => ({ thL: 0, thR: 0, shL: 0, shR: 0, foot: 0, armXL: 0, armXR: 0, armZ: 0, fore: 0, torso: 0, torsoY: 0, head: 0, pelX: 0, pelY: 0, pelYaw: 0 });
-function mix(out: P, a: P, b: P, t: number) {
+const KEYS = ['thL', 'thR', 'shL', 'shR', 'footL', 'footR', 'armXL', 'armXR', 'armZ', 'foreL', 'foreR', 'torso', 'torsoY', 'head', 'pelX', 'pelY', 'pelYaw'] as const;
+const blank = (): PP => ({ thL: 0, thR: 0, shL: 0, shR: 0, footL: 0, footR: 0, armXL: 0, armXR: 0, armZ: 0, foreL: 0, foreR: 0, torso: 0, torsoY: 0, head: 0, pelX: 0, pelY: 0, pelYaw: 0 });
+function mix(out: PP, a: PP, b: PP, t: number) {
   for (const k of KEYS) out[k] = a[k] + (b[k] - a[k]) * t;
   return out;
 }
@@ -327,8 +414,6 @@ const smooth = (v: number) => v * v * (3 - 2 * v);
 // Frame-rate independent ease toward a target: rate is roughly 1 / (time to get two thirds of the way).
 const ease = (from: number, to: number, rate: number, dt: number) => from + (to - from) * (1 - Math.exp(-rate * dt));
 
-// What the hero's body is doing between frames: how far into each move he is, so every change of pose eases in
-// instead of snapping.
 type Anim = {
   air: number; // 0 running .. 1 jump pose
   slide: number;
@@ -338,78 +423,99 @@ type Anim = {
   lead: number; // which leg leads the jump: 1 left, -1 right
   wasAir: boolean;
   lastVy: number;
+  clock: number;
+  lift: number; // how far the cape streams back
+  swing: number; // the tassel's swing (angle and speed)
+  swingV: number;
 };
 const LAND_TIME = 0.24;
 
-const runPose = (out: P, phase: number) => {
+// One leg's part of the run cycle at phase f (the L leg uses runPhase, the R leg runPhase + pi). The thigh swings
+// forward while sin f > 0; the knee folds high as the leg comes through under the body (cos f > 0), and stays
+// nearly straight while the foot is down.
+function legCycle(f: number) {
+  const th = -Math.sin(f) * 0.85;
+  const fold = Math.max(0, Math.cos(f - 0.35));
+  const sh = 0.22 + 1.45 * fold * fold;
+  const foot = -0.15 + 0.55 * fold;
+  return [th, sh, foot];
+}
+
+const runPose = (out: PP, phase: number) => {
   const s = Math.sin(phase);
-  const c = Math.cos(phase);
-  out.thL = -s * 0.9;
-  out.thR = s * 0.9;
-  out.shL = Math.max(0, -s) * 1.3 + 0.15;
-  out.shR = Math.max(0, s) * 1.3 + 0.15;
-  out.foot = -0.2;
-  out.armXL = s * 0.8;
-  out.armXR = -s * 0.8;
-  out.armZ = 1.25;
-  out.fore = 1.1;
-  out.torso = 0.18;
-  out.torsoY = s * 0.15;
-  out.head = -0.11;
+  [out.thL, out.shL, out.footL] = legCycle(phase);
+  [out.thR, out.shR, out.footR] = legCycle(phase + Math.PI);
+  // Arms pump against the legs with bent elbows; the forearm swings up as its arm comes forward.
+  out.armXL = s * 0.75;
+  out.armXR = -s * 0.75;
+  out.armZ = 1.3;
+  out.foreL = 1.35 + Math.max(0, -s) * 0.35;
+  out.foreR = 1.35 + Math.max(0, s) * 0.35;
+  out.torso = 0.2;
+  out.torsoY = s * 0.16;
+  out.head = -0.14;
   out.pelX = 0;
-  out.pelY = Math.abs(c) * 0.06;
+  // Lowest as a foot passes under the body, highest in the flight between steps.
+  out.pelY = Math.abs(s) * 0.07 - 0.035;
   out.pelYaw = -s * 0.12;
   return out;
 };
 
-const skatePose = (out: P) => {
+const skatePose = (out: PP) => {
   Object.assign(out, blank());
-  out.shL = out.shR = 0.45;
-  out.thL = out.thR = -0.15;
-  out.foot = -0.1;
-  out.armZ = 0.9;
-  out.armXL = 0.15;
-  out.armXR = -0.15;
-  out.fore = 0.5;
-  out.torso = 0.25;
-  out.head = -0.15;
-  out.pelY = -0.12;
+  out.shL = out.shR = 0.55;
+  out.thL = -0.3;
+  out.thR = -0.05;
+  out.footL = out.footR = 0.15;
+  out.armZ = 0.75;
+  out.armXL = -0.3;
+  out.armXR = 0.25;
+  out.foreL = out.foreR = 0.5;
+  out.torso = 0.28;
+  out.torsoY = 0.35; // surfer stance, side-on to the street
+  out.pelYaw = -0.35;
+  out.head = -0.18;
+  out.pelY = -0.13;
   return out;
 };
 
-// The jump follows the arc: one leg drives forward off the ground with the arms swinging forward, both knees tuck at
-// the top, then the legs reach down for the street and the arms spread for balance.
-const airPose = (out: P, vy: number, lead: number) => {
+// The jump follows the arc: one leg drives forward off the ground with the opposite arm punching up (a superhero
+// leap), both knees tuck at the top, then the legs reach down for the street and the arms spread for balance.
+const airPose = (out: PP, vy: number, lead: number) => {
   const u = Math.max(-1, Math.min(1, vy / JUMP_V)); // 1 at take-off, 0 at the top, about -1 on landing
-  let front: number, back: number, kneeF: number, kneeB: number;
+  let front: number, back: number, kneeF: number, kneeB: number, punch: number;
   if (u >= 0) {
     const tuck = smooth(1 - u);
-    front = -0.55 - 0.55 * tuck;
-    back = 0.45 - 0.95 * tuck;
-    kneeF = 0.6 + 0.8 * tuck;
-    kneeB = 1.1 + 0.4 * tuck;
-    out.armZ = 1.45 - 0.25 * u; // arms lift a little on the way up (not out in a T: that read as a scarecrow from behind)
-    out.torso = 0.05 + 0.1 * tuck;
+    front = -0.7 - 0.5 * tuck;
+    back = 0.5 - 0.9 * tuck;
+    kneeF = 0.7 + 0.8 * tuck;
+    kneeB = 1.2 + 0.4 * tuck;
+    punch = 1 - tuck * 0.4;
+    out.armZ = 1.35 - 0.3 * u;
+    out.torso = 0.05 + 0.15 * tuck;
   } else {
     const f = smooth(-u);
-    front = -1.1 + 0.8 * f;
+    front = -1.2 + 0.85 * f;
     back = -0.5 + 0.6 * f;
-    kneeF = 1.4 - 1.05 * f;
-    kneeB = 1.5 - 0.95 * f;
-    out.armZ = 1.45 - 0.2 * f; // and stay a touch out on the way down, for balance
-    out.torso = 0.15 + 0.15 * f;
+    kneeF = 1.5 - 1.1 * f;
+    kneeB = 1.6 - 1.0 * f;
+    punch = 0.6 - 0.6 * f;
+    out.armZ = 1.1 + 0.15 * f;
+    out.torso = 0.2 + 0.12 * f;
   }
   out.thL = lead > 0 ? front : back;
   out.thR = lead > 0 ? back : front;
   out.shL = lead > 0 ? kneeF : kneeB;
   out.shR = lead > 0 ? kneeB : kneeF;
-  out.foot = -0.1;
-  // The arm opposite the lead leg swings forward, as in a stride.
-  out.armXL = -0.35 + lead * 0.3; // negative swings an arm forward
-  out.armXR = -0.35 - lead * 0.3;
-  out.fore = 1.0; // elbows stay bent, as in the run
+  out.footL = out.footR = 0.15;
+  // The arm opposite the lead leg reaches forward and up; the other swings back.
+  const reach = -0.9 - 0.9 * punch;
+  out.armXL = lead > 0 ? 0.5 : reach;
+  out.armXR = lead > 0 ? reach : 0.5;
+  out.foreL = lead > 0 ? 1.2 : 0.4;
+  out.foreR = lead > 0 ? 0.4 : 1.2;
   out.torsoY = 0;
-  out.head = -out.torso * 0.6;
+  out.head = -out.torso * 0.7;
   out.pelX = 0;
   out.pelY = 0;
   out.pelYaw = 0;
@@ -417,51 +523,50 @@ const airPose = (out: P, vy: number, lead: number) => {
 };
 
 // Absorbing a landing: knees bend, hips drop, the body tips forward, the arms come down.
-const landPose = (out: P, hard: number) => {
+const landPose = (out: PP, hard: number) => {
   Object.assign(out, blank());
-  out.thL = out.thR = -0.35 - 0.3 * hard;
-  out.shL = out.shR = 0.6 + 0.6 * hard;
-  out.foot = 0.15;
-  out.armXL = out.armXR = -0.25;
-  out.armZ = 1.3;
-  out.fore = 1.0;
-  out.torso = 0.3 + 0.25 * hard;
-  out.head = -0.25;
-  out.pelY = -0.07 - 0.12 * hard;
+  out.thL = out.thR = -0.45 - 0.3 * hard;
+  out.shL = out.shR = 0.8 + 0.6 * hard;
+  out.footL = out.footR = -0.2;
+  out.armXL = out.armXR = -0.35;
+  out.armZ = 1.15;
+  out.foreL = out.foreR = 1.0;
+  out.torso = 0.35 + 0.25 * hard;
+  out.head = -0.3;
+  out.pelY = -0.09 - 0.12 * hard;
   return out;
 };
 
-// Feet-first slide: lie back, legs forward.
-const slidePose = (out: P, base: number) => {
-  out.pelX = -1.25;
-  out.pelY = 0.35 - base;
+// Feet-first slide: lie back, legs forward, one hand trailing on the street.
+const slidePose = (out: PP) => {
+  out.pelX = -1.2;
+  out.pelY = 0.32 - HIP;
   out.pelYaw = 0;
-  out.thL = -0.3;
-  out.thR = -0.1;
+  out.thL = -0.35;
+  out.thR = -0.05;
   out.shL = 0.1;
-  out.shR = 0.4;
-  out.foot = -0.1;
-  out.torso = 0.1;
+  out.shR = 0.6;
+  out.footL = out.footR = -0.2;
+  out.torso = 0.15;
   out.torsoY = 0;
-  out.armXL = 0.6;
-  out.armXR = -0.6;
-  out.armZ = 1.0;
-  out.fore = 0.6;
-  out.head = 0.7;
+  out.armXL = 0.9;
+  out.armXR = -0.4;
+  out.armZ = 0.9;
+  out.foreL = 0.3;
+  out.foreR = 1.2;
+  out.head = 0.75;
   return out;
 };
 
 const pose = blank();
 const other = blank();
+const tmpV = new THREE.Vector3();
 
-// Procedural animation: rotations are written on stand-in joints (old part-rig frame, model facing +z)
-// and driveSkin turns them into bone rotations. Plain running plays the model's own run clip; jumps, landings,
-// slides and skating are code poses blended over it.
 export function poseHero(rig: HeroRig, p: Pose) {
   const j = rig.joints;
   const dt = Math.max(0, Math.min(0.1, p.dt));
-  const base = j.pelvis.userData.baseY ?? (j.pelvis.userData.baseY = j.pelvis.position.y);
-  const a: Anim = (rig.root.userData.anim ??= { air: 0, slide: 0, skate: 0, land: Infinity, landHard: 0, lead: 1, wasAir: false, lastVy: 0 });
+  const a: Anim = (rig.root.userData.anim ??= { air: 0, slide: 0, skate: 0, land: Infinity, landHard: 0, lead: 1, wasAir: false, lastVy: 0, clock: 0, lift: 0.3, swing: 0, swingV: 0 });
+  a.clock += dt;
 
   if (p.airborne && !a.wasAir) {
     // Take off from whichever leg was planted: the one swinging forward leads.
@@ -476,11 +581,9 @@ export function poseHero(rig: HeroRig, p: Pose) {
   a.lastVy = p.vy;
   a.land += dt;
 
-  // Into the air fast (the body has to keep up with the launch), out of it through the landing.
   a.air = ease(a.air, p.airborne ? 1 : 0, p.airborne ? 22 : 16, dt);
   a.slide = ease(a.slide, p.sliding ? 1 : 0, p.sliding ? 20 : 12, dt);
   a.skate = ease(a.skate, p.skating ? 1 : 0, 10, dt);
-  // Landing: a quick dip, then a slower rise back into the run.
   const lt = a.land;
   const land = lt >= LAND_TIME ? 0 : lt < 0.05 ? smooth(lt / 0.05) : smooth(1 - (lt - 0.05) / (LAND_TIME - 0.05));
 
@@ -488,30 +591,48 @@ export function poseHero(rig: HeroRig, p: Pose) {
   if (a.skate > 0.001) mix(pose, pose, skatePose(other), a.skate);
   if (a.air > 0.001) mix(pose, pose, airPose(other, p.vy, a.lead), a.air);
   if (land > 0.001) mix(pose, pose, landPose(other, a.landHard), land * 0.85);
-  if (a.slide > 0.001) mix(pose, pose, slidePose(other, base), a.slide);
+  if (a.slide > 0.001) mix(pose, pose, slidePose(other), a.slide);
 
   j.thighL.rotation.set(pose.thL, 0, 0);
   j.thighR.rotation.set(pose.thR, 0, 0);
   j.shinL.rotation.set(pose.shL, 0, 0);
   j.shinR.rotation.set(pose.shR, 0, 0);
-  j.footL.rotation.set(pose.foot, 0, 0);
-  j.footR.rotation.set(pose.foot, 0, 0);
+  j.footL.rotation.set(pose.footL, 0, 0);
+  j.footR.rotation.set(pose.footR, 0, 0);
   // Arms come down from the T-pose, then swing.
   j.upperArmL.rotation.set(pose.armXL, 0, pose.armZ);
   j.upperArmR.rotation.set(pose.armXR, 0, -pose.armZ);
-  j.forearmL.rotation.set(0, pose.fore, 0);
-  j.forearmR.rotation.set(0, -pose.fore, 0);
+  j.forearmL.rotation.set(0, pose.foreL, 0);
+  j.forearmR.rotation.set(0, -pose.foreR, 0);
   j.torso.rotation.set(pose.torso, pose.torsoY, 0);
-  j.head.rotation.set(pose.head, 0, 0);
+  j.head.rotation.set(pose.head, -pose.torsoY * 0.6, 0);
   j.pelvis.rotation.set(pose.pelX, pose.pelYaw, 0);
-  j.pelvis.position.y = base + pose.pelY;
+  j.pelvis.position.y = HIP + pose.pelY;
+
+  // A little squash on a hard landing.
+  const squash = land * (0.04 + 0.08 * a.landHard);
+  rig.body.scale.set(1 + squash * 0.6, 1 - squash, 1 + squash * 0.6);
+
+  // Cape: streams back with speed, flies up on the way down from a jump, trails flat in a slide.
+  const speed = p.speed ?? 10;
+  const target = 0.45 + 0.75 * clamp01(speed / 16) + (p.airborne && p.vy < 0 ? 0.35 : 0) + a.slide * 0.5 + a.skate * 0.2;
+  a.lift = ease(a.lift, target, 6, dt);
+  flowCape(rig.cape, a.clock, a.lift, 0.12 + 0.18 * clamp01(speed / 16));
+
+  // Tassel: a damped pendulum kicked by the stride and by jumps.
+  const kick = Math.cos(p.runPhase * 2) * 4 * (1 - a.air) - p.vy * 0.4 * a.air;
+  a.swingV += (-a.swing * 60 - a.swingV * 5 + kick) * dt;
+  a.swing += a.swingV * dt;
+  rig.tassel.rotation.set(-0.5 - 0.3 * clamp01(speed / 16) + a.swing * 0.5, 0, Math.sin(a.clock * 3) * 0.1);
 
   rig.tajine.visible = p.tajine;
   rig.board.visible = p.skating;
   rig.body.position.y = 0.15 * a.skate;
-  if (rig.skin) {
-    // The run clip plays only while nothing else is going on; it fades as the other poses fade in.
-    rig.skin.runWeight = 1 - Math.max(a.air, a.slide, a.skate, land * 0.85);
-    driveSkin(rig, p.runPhase);
+  if (p.tajine) {
+    // The tajine sits on the head wherever the head goes.
+    rig.root.updateMatrixWorld(true);
+    j.head.getWorldPosition(tmpV);
+    rig.root.worldToLocal(tmpV);
+    rig.tajine.position.set(tmpV.x, tmpV.y + 0.24, tmpV.z);
   }
 }

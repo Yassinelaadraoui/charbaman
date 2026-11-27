@@ -9,7 +9,6 @@ import { CONTACT_EMAIL } from '../config';
 
 // Every outside asset in the game. 3D models are CC-BY-4.0 unless marked otherwise.
 const CREDITS: [string, string][] = [
-  ['Hero body and run', 'Denys Almaral (Sketchfab Standard licence)'],
   ['Petit taxi, based on "Hong Kong Taxi"', 'Goedude'],
   ['Hassan II Mosque, Derby House, Popular House, Old Neighborhood House, Morocco House', 'abdlilah ben'],
   ['Hassan Tower', 'Ysn.Aitaddi'],

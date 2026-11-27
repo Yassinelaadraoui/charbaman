@@ -39,6 +39,13 @@ const DASH_COOLDOWN = 2.5;
 const MAGNET_TIME = 8;
 const SHIELD_TIME = 12;
 const MAGNET_REACH = 4.5;
+// A ramp throws you high (about 3.4 m), over the traffic and through a high arc of bottles.
+export const RAMP_V = 17;
+// Charba Rush: hitting the top combo multiplier sets it off. For a few seconds you run faster and smash through
+// anything in your way for points.
+const RUSH_TIME = 5;
+const RUSH_SPEED = 5;
+const SMASH_POINTS = 150;
 
 export type EntityKind =
   | 'can'
@@ -48,6 +55,9 @@ export type EntityKind =
   | 'taxi'
   | 'scooter'
   | 'donkey'
+  | 'melon' // a watermelon rolling down the street at you
+  | 'hole' // an open manhole or a roadworks trench: jump it or go round
+  | 'ramp' // a plank ramp: run up it for a big jump
   | 'checkpoint'
   | 'tajine'
   | 'skate'
@@ -94,7 +104,11 @@ export type GameEvent = {
     | 'dash'
     | 'magnet'
     | 'shield'
-    | 'shieldBreak';
+    | 'shieldBreak'
+    | 'ramp'
+    | 'rush'
+    | 'smash'
+    | 'fall';
   n?: number; // combo multiplier
   x?: number;
   z?: number;
@@ -145,6 +159,8 @@ export type GameState = {
   dashCool: number;
   magnet: number; // seconds of bottle magnet left
   shield: number; // seconds of shield left; it takes one hit
+  rush: number; // seconds of Charba Rush left
+  smashes: number;
   events: GameEvent[];
   nextId: number;
 };
@@ -226,6 +242,8 @@ export function createGame(mode: GameMode, cityIndex = 0): GameState {
     dashCool: 0,
     magnet: 0,
     shield: 0,
+    rush: 0,
+    smashes: 0,
     events: [],
     nextId: 1,
   };
@@ -273,11 +291,80 @@ function oncoming(s: GameState, z: number, x: number, speed: number) {
   add(s, { kind: 'taxi', z, homeZ: z, x, w: 0.85, h: 1.4, depth: 3.8, vz: -speed, wake: WAKE });
 }
 
+// A fruit cart has tipped over up the street: watermelons come rolling down at you, staggered across the lanes.
+function melons(s: GameState, z: number, density: number) {
+  const n = 3 + Math.floor(rand(s) * 3);
+  let x = laneX(s);
+  for (let i = 0; i < n; i++) {
+    const home = z + 30 + i * range(s, 3, 5);
+    add(s, { kind: 'melon', z: home, homeZ: home, x, w: 0.3, h: 0.55, depth: 0.6, vz: -range(s, 6, 9) * (0.85 + density * 0.4), wake: WAKE });
+    // Next one in another lane, so there is always a way through.
+    x = Math.max(-2.4, Math.min(2.4, x + (rand(s) < 0.5 ? -1 : 1) * range(s, 1.3, 2.2)));
+  }
+  canLine(s, z + 2, -x * 0.5, -x * 0.5, 3);
+  return 32 + n * 4;
+}
+
+// Roadworks: a trench right across the street to jump (with bottles over it), or open manholes to steer round.
+function holes(s: GameState, z: number) {
+  if (rand(s) < 0.5) {
+    add(s, { kind: 'hole', z, x: 0, w: ROAD_HALF, h: 0, depth: 1.6 });
+    canArc(s, z, laneX(s));
+    return 10;
+  }
+  const n = 2 + Math.floor(rand(s) * 2);
+  for (let i = 0; i < n; i++) add(s, { kind: 'hole', z: z + i * 7, x: laneX(s), w: 0.5, h: 0, depth: 1.0 });
+  canLine(s, z - 2, laneX(s), laneX(s), 5);
+  return 7 * n + 4;
+}
+
+// Where a jump at launch speed vy puts you, metre by metre: the same physics as step(), at running speed v.
+function arc(vy0: number, v: number) {
+  const pts: { d: number; y: number }[] = [];
+  let y = 0;
+  let vy = vy0;
+  let d = 0;
+  const dt = 1 / 120;
+  while (y >= 0 && d < 60) {
+    const g = (vy > 0 ? GRAVITY : FALL_GRAVITY) * (Math.abs(vy) < APEX_V ? APEX_GRAVITY : 1);
+    vy -= g * dt;
+    y += vy * dt;
+    d += v * dt;
+    pts.push({ d, y });
+  }
+  return pts;
+}
+
+// A plank ramp in one lane with a high arc of bottles over the street beyond it, only reachable off the ramp.
+function ramp(s: GameState, z: number) {
+  const x = range(s, -1.6, 1.6);
+  add(s, { kind: 'ramp', z, x, w: 0.7, h: 0.5, depth: 2.4 });
+  const v = city(s).baseSpeed + progress(s) * 2.5 + (s.mode === 'endless' ? Math.min(10, z / 400) : 0);
+  const path = arc(RAMP_V, v);
+  const step = Math.max(1, Math.floor(path.length / 8));
+  for (let i = step; i < path.length - step; i += step) {
+    const p = path[i];
+    if (p.y > 1.2) add(s, { kind: 'can', z: z + 1.2 + p.d, x, y: p.y, w: 0.45, h: 0.7, depth: 1.2 });
+  }
+  // A parked delivery car right after the ramp, to fly over.
+  const far = path[Math.floor(path.length * 0.5)]?.d ?? 8;
+  add(s, { kind: 'taxi', z: z + 1.2 + far, x, w: 0.85, h: 1.4, depth: 3.8 });
+  return far + 12;
+}
+
 // One obstacle pattern; returns how much track it used.
 function pattern(s: GameState, z: number, inChase: boolean): number {
   const c = city(s);
   const r = rand(s);
   const hard = inChase ? 0.25 : 0;
+  // The newer set pieces: rolling melons, holes in the road and ramps.
+  const fresh = rand(s);
+  if (fresh < 0.3) {
+    const kind = rand(s);
+    if (kind < 0.34) return melons(s, z, c.density);
+    if (kind < 0.67) return holes(s, z);
+    if (!inChase) return ramp(s, z);
+  }
   if (r < 0.14 - hard) {
     const x0 = laneX(s);
     canLine(s, z, x0, rand(s) < 0.5 ? x0 : laneX(s), 6);
@@ -391,6 +478,7 @@ function respawn(s: GameState) {
   s.invuln = 2;
   s.tajine = 0;
   s.skate = 0;
+  s.rush = 0;
   for (const e of s.entities) {
     if (e.homeZ !== undefined) e.z = e.homeZ; // cars drive back to where they waited
     if (e.z > s.z - 2) e.passed = false;
@@ -414,6 +502,14 @@ export const comboMultiplier = (s: GameState) => Math.min(COMBO_MAX, 1 + Math.fl
 
 function hit(s: GameState, e: Entity) {
   e.done = true;
+  if (s.rush > 0) {
+    // In a rush you plough straight through.
+    s.bonus += SMASH_POINTS;
+    s.smashes += 1;
+    s.shake = Math.max(s.shake, 0.15);
+    s.events.push({ type: 'smash', x: e.x, z: e.z });
+    return;
+  }
   if (s.invuln > 0) return;
   if (s.shield > 0) {
     // The shield takes the knock and breaks; nothing else is lost.
@@ -425,7 +521,7 @@ function hit(s: GameState, e: Entity) {
   }
   s.hits += 1;
   s.combo = 0;
-  s.events.push({ type: 'hit', x: e.x, z: e.z });
+  s.events.push({ type: e.kind === 'hole' ? 'fall' : 'hit', x: e.x, z: e.z });
   s.shake = 0.35;
   s.speed *= 0.35;
   s.stun = 0.35;
@@ -463,6 +559,7 @@ export function step(s: GameState, dtRaw: number, inputRaw: Input) {
   s.dashCool = Math.max(0, s.dashCool - dt);
   s.magnet = Math.max(0, s.magnet - dt);
   s.shield = Math.max(0, s.shield - dt);
+  s.rush = Math.max(0, s.rush - dt);
   if (s.comboTimer === 0) s.combo = 0;
 
   // Speed: ramps up through a stage, faster in the chase and on a skateboard.
@@ -471,6 +568,7 @@ export function step(s: GameState, dtRaw: number, inputRaw: Input) {
   if (s.phase === 'chase') target += 3;
   if (s.skate > 0) target += 5;
   if (s.dash > 0) target += 8;
+  if (s.rush > 0) target += RUSH_SPEED;
   const accel = s.stun > 0 ? 0 : s.dash > 0 ? 30 : 9;
   s.speed += Math.sign(target - s.speed) * Math.min(Math.abs(target - s.speed), accel * dt);
 
@@ -540,7 +638,7 @@ export function step(s: GameState, dtRaw: number, inputRaw: Input) {
     }
     if (e.vz && (e.wake === undefined || e.z - s.z < e.wake)) e.z += e.vz * dt;
     // A car, scooter or cart that has just gone by without touching you, by a whisker: a close call.
-    if (!e.done && !e.passed && (e.kind === 'taxi' || e.kind === 'scooter' || e.kind === 'donkey') && e.z + e.depth / 2 < s.z - PLAYER_HALF) {
+    if (!e.done && !e.passed && (e.kind === 'taxi' || e.kind === 'scooter' || e.kind === 'donkey' || e.kind === 'melon') && e.z + e.depth / 2 < s.z - PLAYER_HALF) {
       e.passed = true;
       const gap = Math.abs(e.x - s.x) - e.w - PLAYER_HALF;
       if (gap < CLOSE_MARGIN && s.invuln === 0) {
@@ -566,6 +664,10 @@ export function step(s: GameState, dtRaw: number, inputRaw: Input) {
           s.bonus += CAN_POINTS * (mult - 1);
           s.events.push({ type: 'can', x: e.x, z: e.z });
           if (mult > before) s.events.push({ type: 'combo', n: mult });
+          if (mult > before && mult === COMBO_MAX) {
+            s.rush = RUSH_TIME;
+            s.events.push({ type: 'rush' });
+          }
           if (s.lifeCans >= LIFE_EVERY) {
             s.lifeCans = 0;
             s.lives = Math.min(9, s.lives + 1);
@@ -613,6 +715,20 @@ export function step(s: GameState, dtRaw: number, inputRaw: Input) {
         }
         break;
       case 'finish':
+        break;
+      case 'hole':
+        // Only a foot on the street drops in; anything in the air passes over.
+        if (s.y < 0.1 && Math.abs(e.x - s.x) < e.w + PLAYER_HALF * 0.3) hit(s, e);
+        break;
+      case 'ramp':
+        if (s.y < 0.6 && s.vy <= 0) {
+          e.done = true;
+          s.vy = RAMP_V;
+          s.y = Math.max(s.y, 0.01);
+          s.slide = 0;
+          s.slideQueued = false;
+          s.events.push({ type: 'ramp', x: e.x, z: e.z });
+        }
         break;
       default:
         if (vertical) hit(s, e);
